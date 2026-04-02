@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+NAME="${1:?usage: worker-stop <project-name> [--purge-volumes]}"
+PURGE_VOLUMES="${2:-}"
+
+BASE="$HOME/Projects/$NAME"
+SESSION="worker-$NAME"
+
+echo "Before:"
+tmux ls 2>/dev/null || echo "No tmux sessions"
+
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  tmux kill-session -t "$SESSION"
+  echo "Killed tmux session: $SESSION"
+else
+  echo "No tmux session found: $SESSION"
+fi
+
+if [ -d "$BASE" ]; then
+  cd "$BASE"
+  if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ] || [ -f compose.yml ] || [ -f compose.yaml ]; then
+    echo "Stopping Docker Compose services..."
+    if [ "$PURGE_VOLUMES" = "--purge-volumes" ]; then
+      docker compose down -v || docker-compose down -v
+    else
+      docker compose down || docker-compose down
+    fi
+  else
+    echo "No compose file found, skipping Docker shutdown."
+  fi
+else
+  echo "Project directory not found: $BASE"
+fi
+
+echo
+echo "After:"
+tmux ls 2>/dev/null || echo "No tmux sessions"

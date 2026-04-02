@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+DIR="${1:?usage: worker-review <project-dir> <prompt...>}"
+shift
+PROMPT="$*"
+cd "$DIR"
+codex --full-auto "$PROMPT"

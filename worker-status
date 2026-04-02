@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+NAME="${1:?usage: worker-status <project-name>}"
+BASE="$HOME/Projects/$NAME"
+
+TASK_FILE="$BASE/TASK.md"
+REVIEW_FILE="$BASE/REVIEW.md"
+STATUS_FILE="$BASE/.worker/status.md"
+
+if [ ! -d "$BASE" ]; then
+  echo "Project not found: $BASE" >&2
+  exit 1
+fi
+
+echo "=== TASK.md ==="
+cat "$TASK_FILE" 2>/dev/null || echo "missing"
+echo
+
+echo "=== REVIEW.md ==="
+cat "$REVIEW_FILE" 2>/dev/null || echo "missing"
+echo
+
+echo "=== status.md ==="
+cat "$STATUS_FILE" 2>/dev/null || echo "missing"

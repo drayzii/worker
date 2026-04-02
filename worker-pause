@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+NAME="${1:?usage: worker-pause <project-name>}"
+BASE="$HOME/Projects/$NAME"
+SESSION="worker-$NAME"
+ACTIVE_FILE="$BASE/.worker/ACTIVE.pid"
+
+if [ ! -d "$BASE" ]; then
+  echo "Project not found: $BASE" >&2
+  exit 1
+fi
+
+if [ -f "$ACTIVE_FILE" ]; then
+  PID="$(cat "$ACTIVE_FILE" 2>/dev/null || true)"
+  if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+    kill -TERM "$PID" 2>/dev/null || true
+    sleep 1
+    if kill -0 "$PID" 2>/dev/null; then
+      kill -KILL "$PID" 2>/dev/null || true
+    fi
+    echo "Stopped runner pid: $PID"
+  fi
+  rm -f "$ACTIVE_FILE"
+fi
+
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  tmux kill-session -t "$SESSION"
+  echo "Paused tmux session: $SESSION"
+else
+  echo "No tmux session found: $SESSION"
+fi
+
+echo "Worker paused."
+echo "Resume with: worker-continue $NAME"

@@ -1,0 +1,737 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE="${1:?usage: worker-runner <project-dir> [new|continue]}"
+MODE="${2:-continue}"
+
+cd "$BASE"
+
+LOG_DIR="$BASE/.worker/logs"
+LOG_FILE="$LOG_DIR/run.log"
+TEMP_FILE="$LOG_DIR/current-run.ndjson"
+STATE_FILE="$BASE/.worker/runtime.env"
+ACTIVE_FILE="$BASE/.worker/ACTIVE.pid"
+ROLES_FILE="$BASE/.worker/roles.env"
+STATUS_FILE="$BASE/.worker/status.md"
+PLAN_FILE="$BASE/PLAN.md"
+TASK_FILE="$BASE/TASK.md"
+REVIEW_FILE="$BASE/REVIEW.md"
+INITIAL_PROMPT_FILE="$BASE/.worker/initial-prompt.txt"
+EXTRA_FILE="$BASE/.worker/continue-extra.txt"
+CONTROLLER_BRIEF_FILE="$BASE/.worker/controller-brief.md"
+EXECUTOR_BRIEF_FILE="$BASE/.worker/executor-brief.md"
+REVIEW_BRIEF_FILE="$BASE/.worker/review-brief.md"
+ESCALATION_BRIEF_FILE="$BASE/.worker/escalation-brief.md"
+SYSTEM_PROMPT_FILE="$HOME/.config/ai-worker/system-prompt.txt"
+
+mkdir -p "$LOG_DIR" "$BASE/.worker/tools"
+touch "$LOG_FILE" "$STATUS_FILE" "$PLAN_FILE" "$TASK_FILE" "$REVIEW_FILE"
+
+echo $$ > "$ACTIVE_FILE"
+trap 'rm -f "$ACTIVE_FILE"' EXIT
+
+if [ -f "$ROLES_FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$ROLES_FILE"
+else
+  CONTROLLER="codex"
+  EXECUTOR="codex"
+  ESCALATION="claude"
+fi
+
+if [ -f "$STATE_FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$STATE_FILE"
+fi
+
+: "${ITERATION:=0}"
+: "${STAGE:=controller_plan}"
+: "${EXECUTOR_FAILURES:=0}"
+: "${ESCALATION_FAILURES:=0}"
+: "${CONTROLLER_FAILURES:=0}"
+
+save_state() {
+  cat > "$STATE_FILE" <<STATE
+ITERATION=$ITERATION
+STAGE=$STAGE
+EXECUTOR_FAILURES=$EXECUTOR_FAILURES
+ESCALATION_FAILURES=$ESCALATION_FAILURES
+CONTROLLER_FAILURES=$CONTROLLER_FAILURES
+STATE
+}
+
+ts() {
+  date '+%a %b %d %H:%M:%S %Z %Y'
+}
+
+utc_now() {
+  date -u '+%Y-%m-%dT%H:%M:%SZ'
+}
+
+banner() {
+  echo "=== $1 | $(ts) ===" | tee -a "$LOG_FILE"
+}
+
+latest_project_prompt() {
+  [ -f "$INITIAL_PROMPT_FILE" ] && cat "$INITIAL_PROMPT_FILE" || true
+}
+
+latest_extra() {
+  [ -f "$EXTRA_FILE" ] && cat "$EXTRA_FILE" || true
+}
+
+ensure_status_skeleton() {
+  if ! grep -q '^STATUS:' "$STATUS_FILE" 2>/dev/null; then
+    cat > "$STATUS_FILE" <<'EOF2'
+PHASE: Starting
+CURRENT_MILESTONE:
+LAST_ACTION: initialized worker
+NEXT_ACTION: controller should create PLAN.md and TASK.md
+CONTROLLER_DECISION: PLAN
+ESCALATE_TO_PROVIDER: NO
+BLOCKER:
+STATUS: INCOMPLETE
+EOF2
+  fi
+}
+
+status_complete() {
+  grep -Eq '^STATUS:[[:space:]]*COMPLETE$' "$STATUS_FILE" 2>/dev/null
+}
+
+controller_decision() {
+  grep -E '^CONTROLLER_DECISION:' "$STATUS_FILE" 2>/dev/null | tail -n 1 | sed 's/^CONTROLLER_DECISION:[[:space:]]*//'
+}
+
+escalation_requested() {
+  grep -Eq '^ESCALATE_TO_PROVIDER:[[:space:]]*(YES|TRUE|1)$' "$STATUS_FILE" 2>/dev/null
+}
+
+task_field() {
+  local key="$1"
+  python3 - "$TASK_FILE" "$key" <<'PY'
+import pathlib, re, sys
+p = pathlib.Path(sys.argv[1]); key = sys.argv[2]
+text = p.read_text() if p.exists() else ""
+m = re.search(rf'^{re.escape(key)}:\s*(.+)$', text, flags=re.M)
+print(m.group(1).strip() if m else "")
+PY
+}
+
+set_status_field() {
+  local key="$1"
+  local value="$2"
+  python3 - "$STATUS_FILE" "$key" "$value" <<'PY'
+import pathlib, re, sys
+p = pathlib.Path(sys.argv[1]); key = sys.argv[2]; value = sys.argv[3]
+text = p.read_text() if p.exists() else ""
+pat = rf'^{re.escape(key)}:.*$'
+rep = f'{key}: {value}'
+if re.search(pat, text, flags=re.M):
+    text = re.sub(pat, rep, text, flags=re.M)
+else:
+    text = text.rstrip() + ('\n' if text and not text.endswith('\n') else '') + rep + '\n'
+p.write_text(text)
+PY
+}
+
+normalize_status_for_stage() {
+  local stage="$1"
+  local milestone
+  milestone="$(task_field MILESTONE)"
+
+  case "$stage" in
+    controller_plan)   set_status_field PHASE "Planning" ;;
+    executor)          set_status_field PHASE "Execution" ;;
+    controller_review) set_status_field PHASE "Review" ;;
+    escalation)        set_status_field PHASE "Escalation" ;;
+    *)                 set_status_field PHASE "Working" ;;
+  esac
+
+  if [ -n "$milestone" ]; then
+    set_status_field CURRENT_MILESTONE "$milestone"
+  fi
+}
+
+stamp_file_end() {
+  local file="$1"
+  local stamp="$2"
+  python3 - "$file" "$stamp" <<'PY'
+import pathlib, re, sys
+p = pathlib.Path(sys.argv[1])
+stamp = sys.argv[2]
+text = p.read_text() if p.exists() else ""
+text = re.sub(r'\n*UPDATED_AT:\s*[^\n]*\s*\Z', '', text, flags=re.S)
+text = text.rstrip('\n')
+if text:
+    text += '\n\n'
+text += f'UPDATED_AT: {stamp}\n'
+p.write_text(text)
+PY
+}
+
+stamp_artifacts() {
+  local stamp
+  stamp="$(utc_now)"
+  stamp_file_end "$PLAN_FILE" "$stamp"
+  stamp_file_end "$TASK_FILE" "$stamp"
+  stamp_file_end "$REVIEW_FILE" "$stamp"
+  stamp_file_end "$STATUS_FILE" "$stamp"
+}
+
+state_fingerprint() {
+  python3 - "$PLAN_FILE" "$TASK_FILE" "$REVIEW_FILE" "$STATUS_FILE" <<'PY'
+import hashlib, pathlib, re, sys
+parts = []
+for path in sys.argv[1:]:
+    p = pathlib.Path(path)
+    text = p.read_text() if p.exists() else ""
+    text = re.sub(r'\n*UPDATED_AT:\s*[^\n]*\s*\Z', '', text, flags=re.S)
+    parts.append(text)
+print(hashlib.sha256("\n---\n".join(parts).encode()).hexdigest())
+PY
+}
+
+sanitize_controller_decision() {
+  python3 - "$STATUS_FILE" "$PLAN_FILE" "$TASK_FILE" "$REVIEW_FILE" <<'PY'
+import pathlib, re, sys
+
+status_file = pathlib.Path(sys.argv[1])
+plan_file = pathlib.Path(sys.argv[2])
+task_file = pathlib.Path(sys.argv[3])
+review_file = pathlib.Path(sys.argv[4])
+
+def nonempty(p: pathlib.Path) -> bool:
+    return p.exists() and p.stat().st_size > 0
+
+text = status_file.read_text() if status_file.exists() else ""
+have_any_artifacts = nonempty(plan_file) or nonempty(task_file) or nonempty(review_file)
+
+m = re.search(r'^CONTROLLER_DECISION:\s*(.*)$', text, flags=re.M)
+decision = m.group(1).strip().upper() if m else ""
+
+if have_any_artifacts and decision in {"PLAN", "REPLAN"}:
+    if re.search(r'^CONTROLLER_DECISION:.*$', text, flags=re.M):
+        text = re.sub(r'^CONTROLLER_DECISION:.*$', 'CONTROLLER_DECISION: REVISE', text, flags=re.M)
+    else:
+        text = text.rstrip() + '\nCONTROLLER_DECISION: REVISE\n'
+    status_file.write_text(text)
+PY
+}
+
+has_noop_output() {
+  grep -Eiq 'shall i proceed|want me to proceed|ready to proceed|acknowledged|confirmed\.|i.ve read all five files|do you want me to' "$TEMP_FILE" 2>/dev/null
+}
+
+provider_auth_failed() {
+  grep -Eiq 'authentication_failed|Not logged in|Please run /login' "$TEMP_FILE" 2>/dev/null
+}
+
+provider_hit_max_turns() {
+  grep -Eiq 'error_max_turns|max turns|max_turns' "$TEMP_FILE" 2>/dev/null
+}
+
+post_turn_guard() {
+  python3 - "$STATUS_FILE" <<'PY'
+import pathlib, re, sys
+p = pathlib.Path(sys.argv[1])
+text = p.read_text() if p.exists() else ""
+has_complete = re.search(r'^STATUS:\s*COMPLETE\s*$', text, flags=re.M)
+has_next = re.search(r'^NEXT_ACTION:\s*(?!\s*$|none\b|n/?a\b).*', text, flags=re.I | re.M)
+if has_complete and has_next:
+    text = re.sub(r'^STATUS:\s*COMPLETE\s*$', 'STATUS: INCOMPLETE', text, flags=re.M)
+p.write_text(text)
+PY
+}
+
+plan_artifacts_ready() {
+  [ -s "$PLAN_FILE" ] && [ -s "$TASK_FILE" ] && [ -s "$REVIEW_FILE" ]
+}
+
+set_controller_blocker() {
+  local msg="$1"
+  cat > "$STATUS_FILE" <<EOF2
+PHASE: Controller blocked
+CURRENT_MILESTONE: $(task_field MILESTONE)
+LAST_ACTION: controller planning/review failed
+NEXT_ACTION: fix controller or override provider, then continue
+CONTROLLER_DECISION: REVISE
+ESCALATE_TO_PROVIDER: NO
+BLOCKER: $msg
+STATUS: INCOMPLETE
+EOF2
+  stamp_file_end "$STATUS_FILE" "$(utc_now)"
+}
+
+set_escalation_blocker() {
+  local msg="$1"
+  cat > "$STATUS_FILE" <<EOF2
+PHASE: Escalation blocked
+CURRENT_MILESTONE: $(task_field MILESTONE)
+LAST_ACTION: escalation failed or exceeded limits
+NEXT_ACTION: manual intervention or provider override required
+CONTROLLER_DECISION: ESCALATE
+ESCALATE_TO_PROVIDER: YES
+BLOCKER: $msg
+STATUS: INCOMPLETE
+EOF2
+  stamp_file_end "$STATUS_FILE" "$(utc_now)"
+}
+
+write_controller_brief() {
+  local project_prompt extra current_status file_tree
+  project_prompt="$(latest_project_prompt)"
+  extra="$(latest_extra)"
+  current_status="$(tail -n 30 "$STATUS_FILE" 2>/dev/null || true)"
+  file_tree="$(find . -maxdepth 2 \
+    \( -path './.git' -o -path './node_modules' -o -path './.next' -o -path './dist' -o -path './build' -o -path './coverage' \) -prune \
+    -o -type f -print | sed 's#^\./##' | sort | head -n 200)"
+
+  cat > "$CONTROLLER_BRIEF_FILE" <<EOF2
+PROJECT PROMPT:
+$project_prompt
+
+ADDITIONAL INSTRUCTIONS:
+$extra
+
+CURRENT STATUS:
+$current_status
+
+TOP-LEVEL FILES:
+$file_tree
+
+REQUIRED TASK.md FORMAT:
+MILESTONE: <id>
+TITLE: <short title>
+OBJECTIVE: <one paragraph>
+SCOPE:
+- ...
+ACCEPTANCE:
+- ...
+VALIDATION:
+- ...
+EOF2
+}
+
+write_executor_brief() {
+  local task review status errors changed
+  task="$(tail -n 80 "$TASK_FILE" 2>/dev/null || true)"
+  review="$(tail -n 60 "$REVIEW_FILE" 2>/dev/null || true)"
+  status="$(tail -n 40 "$STATUS_FILE" 2>/dev/null || true)"
+  errors="$(grep -E 'failed|error|timeout|Error|FAIL|Test timeout|ECONN|ENOENT|EADDRINUSE|lightningcss' "$LOG_FILE" 2>/dev/null | tail -n 60 || true)"
+  changed="$(git status --short 2>/dev/null | tail -n 60 || true)"
+
+  cat > "$EXECUTOR_BRIEF_FILE" <<EOF2
+CURRENT TASK:
+$task
+
+CURRENT REVIEW:
+$review
+
+CURRENT STATUS:
+$status
+
+RECENT ERRORS:
+$errors
+
+CURRENT CHANGES:
+$changed
+EOF2
+}
+
+write_review_brief() {
+  local task review status changed errors
+  task="$(tail -n 80 "$TASK_FILE" 2>/dev/null || true)"
+  review="$(tail -n 60 "$REVIEW_FILE" 2>/dev/null || true)"
+  status="$(tail -n 40 "$STATUS_FILE" 2>/dev/null || true)"
+  changed="$(git status --short 2>/dev/null | tail -n 60 || true)"
+  errors="$(grep -E 'failed|error|timeout|Error|FAIL|Test timeout|ECONN|ENOENT|EADDRINUSE|lightningcss' "$LOG_FILE" 2>/dev/null | tail -n 60 || true)"
+
+  cat > "$REVIEW_BRIEF_FILE" <<EOF2
+CURRENT TASK:
+$task
+
+CURRENT REVIEW:
+$review
+
+CURRENT STATUS:
+$status
+
+CURRENT CHANGES:
+$changed
+
+RECENT ERRORS:
+$errors
+EOF2
+}
+
+write_escalation_brief() {
+  local task status blocker errors extra
+  task="$(tail -n 80 "$TASK_FILE" 2>/dev/null || true)"
+  status="$(tail -n 40 "$STATUS_FILE" 2>/dev/null || true)"
+  blocker="$(grep -E '^BLOCKER:' "$STATUS_FILE" 2>/dev/null | tail -n 1 || true)"
+  errors="$(grep -E 'failed|error|timeout|Error|FAIL|Test timeout|ECONN|ENOENT|EADDRINUSE|lightningcss' "$LOG_FILE" 2>/dev/null | tail -n 80 || true)"
+  extra="$(latest_extra)"
+
+  cat > "$ESCALATION_BRIEF_FILE" <<EOF2
+CURRENT BLOCKER:
+$blocker
+
+CURRENT TASK:
+$task
+
+CURRENT STATUS:
+$status
+
+RECENT ERRORS:
+$errors
+
+ADDITIONAL INSTRUCTIONS:
+$extra
+EOF2
+}
+
+run_codex() {
+  local prompt="$1"
+  : > "$TEMP_FILE"
+  codex exec --json "$prompt" 2>&1 | tee -a "$LOG_FILE" | tee "$TEMP_FILE"
+  return ${PIPESTATUS[0]}
+}
+
+run_claude() {
+  local prompt="$1"
+  local max_turns="${2:-6}"
+  : > "$TEMP_FILE"
+  claude -p \
+    --model sonnet \
+    --permission-mode bypassPermissions \
+    --max-turns "$max_turns" \
+    --output-format stream-json \
+    --verbose \
+    --include-partial-messages \
+    --append-system-prompt "$(cat "$SYSTEM_PROMPT_FILE")" \
+    "$prompt" 2>&1 | tee -a "$LOG_FILE" | tee "$TEMP_FILE"
+  return ${PIPESTATUS[0]}
+}
+
+run_provider() {
+  local provider="$1"
+  local prompt="$2"
+  local max_turns="${3:-6}"
+  if [ "$provider" = "codex" ]; then
+    run_codex "$prompt"
+  else
+    run_claude "$prompt" "$max_turns"
+  fi
+}
+
+make_controller_plan_prompt() {
+  cat <<'PROMPT'
+Read only:
+- .worker/controller-brief.md
+- .worker/status.md
+
+You are the Controller.
+Do one bounded planning pass.
+
+Do exactly these things:
+1. Write PLAN.md with:
+   - goal
+   - milestones
+   - definition of done
+2. Write TASK.md in the exact required format for M1 only.
+3. Overwrite REVIEW.md with one short planning note.
+4. Update .worker/status.md.
+
+Rules:
+- Do not implement anything.
+- Do not ask for confirmation.
+- Do not explore architecture broadly.
+- Do not read extra files unless absolutely necessary.
+- Use direct file writes or Python rewrites for PLAN.md, TASK.md, REVIEW.md, and .worker/status.md.
+- Do not use shell patching.
+- In .worker/status.md set:
+  CONTROLLER_DECISION: EXECUTE
+  ESCALATE_TO_PROVIDER: NO
+  NEXT_ACTION: executor should implement the current TASK.md
+  STATUS: INCOMPLETE
+PROMPT
+}
+
+make_executor_prompt() {
+  cat <<'PROMPT'
+Read only:
+- .worker/executor-brief.md
+- PLAN.md
+- TASK.md
+- REVIEW.md
+- .worker/status.md
+- CLAUDE.md
+
+You are the Executor.
+Implement only the current TASK.md.
+
+Rules:
+- Do the work now.
+- Do not ask for confirmation.
+- Do not rewrite the whole project plan.
+- Do not use local models for orchestration or review.
+- Make real edits and run real commands.
+- Update .worker/status.md with concrete progress.
+- If blocked by a genuinely hard problem, set:
+  ESCALATE_TO_PROVIDER: YES
+  BLOCKER: <specific blocker>
+- Otherwise keep ESCALATE_TO_PROVIDER: NO
+- Leave STATUS: INCOMPLETE.
+- For .worker/status.md updates, use a direct file write or Python rewrite. Do not use shell patching.
+PROMPT
+}
+
+make_controller_review_prompt() {
+  cat <<'PROMPT'
+Read only:
+- .worker/review-brief.md
+- PLAN.md
+- TASK.md
+- REVIEW.md
+- .worker/status.md
+
+You are the Controller.
+Do one bounded review pass.
+
+Decide exactly one of:
+- CONTROLLER_DECISION: ACCEPT
+- CONTROLLER_DECISION: REVISE
+- CONTROLLER_DECISION: ESCALATE
+- CONTROLLER_DECISION: COMPLETE
+
+Rules:
+- Do not ask for confirmation.
+- Do not reread the whole project unless absolutely necessary.
+- Do not change CURRENT_MILESTONE to the next milestone during review.
+- Use direct file writes or Python rewrites for TASK.md, REVIEW.md, and .worker/status.md.
+- Do not use shell patching.
+
+If ACCEPT:
+- Overwrite REVIEW.md with concise acceptance notes for the current milestone.
+- Overwrite TASK.md with the next milestone task if work remains.
+- In .worker/status.md:
+  - keep STATUS: INCOMPLETE unless the whole project is done
+  - set NEXT_ACTION to executor should start the next TASK.md
+
+If REVISE:
+- Overwrite REVIEW.md with concise revision instructions.
+- Overwrite TASK.md with the revised single current task.
+- Keep STATUS: INCOMPLETE.
+
+If ESCALATE:
+- Overwrite REVIEW.md with the blocker.
+- Set ESCALATE_TO_PROVIDER: YES.
+- Keep STATUS: INCOMPLETE.
+
+If COMPLETE:
+- only use COMPLETE if the entire project is done end-to-end.
+PROMPT
+}
+
+make_escalation_prompt() {
+  cat <<'PROMPT'
+Read only:
+- .worker/escalation-brief.md
+- TASK.md
+- .worker/status.md
+
+You are the Escalation provider.
+Resolve only the current blocker.
+
+Rules:
+- Do the work now.
+- Do not ask for confirmation.
+- Focus only on the blocker.
+- Keep this bounded to the blocker.
+- Do not reread the whole project unless absolutely necessary.
+- Use direct file writes or Python rewrites for .worker/status.md and REVIEW.md.
+- Do not use shell patching.
+- If resolved, set ESCALATE_TO_PROVIDER: NO.
+- If not resolved, leave ESCALATE_TO_PROVIDER: YES.
+- Leave STATUS: INCOMPLETE unless the whole project is somehow complete.
+PROMPT
+}
+
+MAX_ITERS=100
+ensure_status_skeleton
+sanitize_controller_decision
+stamp_artifacts
+save_state
+
+while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
+  ITERATION=$((ITERATION + 1))
+  save_state
+
+  case "$STAGE" in
+    controller_plan)
+      normalize_status_for_stage controller_plan
+      sanitize_controller_decision
+      stamp_artifacts
+      write_controller_brief
+      BEFORE_FP="$(state_fingerprint)"
+      banner "controller_plan provider=$CONTROLLER iteration=$ITERATION"
+      if ! run_provider "$CONTROLLER" "$(make_controller_plan_prompt)" 15; then
+        if provider_auth_failed; then
+          set_controller_blocker "Controller provider '$CONTROLLER' is not authenticated."
+          banner "controller auth failed; stopping"
+          break
+        fi
+        if provider_hit_max_turns; then
+          set_controller_blocker "Controller provider '$CONTROLLER' hit max turns during planning."
+          banner "controller max turns; stopping"
+          break
+        fi
+      fi
+      post_turn_guard
+      sanitize_controller_decision
+      stamp_artifacts
+      AFTER_FP="$(state_fingerprint)"
+      if ! plan_artifacts_ready; then
+        set_controller_blocker "Controller failed to produce PLAN.md, TASK.md, and REVIEW.md."
+        banner "controller planning incomplete; stopping"
+        break
+      fi
+      if has_noop_output || [ "$BEFORE_FP" = "$AFTER_FP" ]; then
+        set_controller_blocker "Controller planning made no meaningful progress."
+        banner "controller planning no progress; stopping"
+        break
+      fi
+      CONTROLLER_FAILURES=0
+      STAGE="executor"
+      ;;
+    executor)
+      normalize_status_for_stage executor
+      sanitize_controller_decision
+      stamp_artifacts
+      write_executor_brief
+      BEFORE_FP="$(state_fingerprint)"
+      banner "executor provider=$EXECUTOR iteration=$ITERATION"
+      run_provider "$EXECUTOR" "$(make_executor_prompt)" 6 || true
+      post_turn_guard
+      sanitize_controller_decision
+      stamp_artifacts
+      AFTER_FP="$(state_fingerprint)"
+      if has_noop_output || { [ "$BEFORE_FP" = "$AFTER_FP" ] && ! escalation_requested; }; then
+        EXECUTOR_FAILURES=$((EXECUTOR_FAILURES + 1))
+      else
+        EXECUTOR_FAILURES=0
+      fi
+
+      if escalation_requested || [ "$EXECUTOR_FAILURES" -ge 2 ]; then
+        STAGE="escalation"
+      else
+        STAGE="controller_review"
+      fi
+      ;;
+    controller_review)
+      normalize_status_for_stage controller_review
+      sanitize_controller_decision
+      stamp_artifacts
+      write_review_brief
+      BEFORE_DECISION="$(controller_decision)"
+      BEFORE_FP="$(state_fingerprint)"
+      banner "controller_review provider=$CONTROLLER iteration=$ITERATION"
+      if ! run_provider "$CONTROLLER" "$(make_controller_review_prompt)" 15; then
+        if provider_auth_failed; then
+          set_controller_blocker "Controller provider '$CONTROLLER' is not authenticated during review."
+          banner "controller review auth failed; stopping"
+          break
+        fi
+        if provider_hit_max_turns; then
+          set_controller_blocker "Controller review hit max turns."
+          banner "controller review max turns; stopping"
+          break
+        fi
+      fi
+      post_turn_guard
+      sanitize_controller_decision
+      stamp_artifacts
+      AFTER_FP="$(state_fingerprint)"
+      DECISION="$(controller_decision)"
+
+      if has_noop_output || { [ "$BEFORE_FP" = "$AFTER_FP" ] && [ "$BEFORE_DECISION" = "$DECISION" ]; }; then
+        set_controller_blocker "Controller review made no meaningful progress."
+        banner "controller review no progress; stopping"
+        break
+      fi
+
+      case "$DECISION" in
+        COMPLETE)
+          ;;
+        ESCALATE)
+          STAGE="escalation" ;;
+        REVISE|EXECUTE|ACCEPT)
+          if status_complete; then
+            :
+          else
+            STAGE="executor"
+          fi
+          ;;
+        *)
+          set_controller_blocker "Controller review did not set a valid decision."
+          banner "invalid controller decision; stopping"
+          break
+          ;;
+      esac
+      ;;
+    escalation)
+      normalize_status_for_stage escalation
+      sanitize_controller_decision
+      stamp_artifacts
+      write_escalation_brief
+      BEFORE_FP="$(state_fingerprint)"
+      banner "escalation provider=$ESCALATION iteration=$ITERATION"
+      if ! run_provider "$ESCALATION" "$(make_escalation_prompt)" 20; then
+        if provider_hit_max_turns; then
+          set_escalation_blocker "Escalation provider '$ESCALATION' hit max turns while resolving blocker."
+          banner "escalation max turns; stopping"
+          break
+        fi
+        if provider_auth_failed; then
+          set_escalation_blocker "Escalation provider '$ESCALATION' is not authenticated."
+          banner "escalation auth failed; stopping"
+          break
+        fi
+      fi
+      post_turn_guard
+      sanitize_controller_decision
+      stamp_artifacts
+      AFTER_FP="$(state_fingerprint)"
+
+      if has_noop_output || [ "$BEFORE_FP" = "$AFTER_FP" ]; then
+        set_escalation_blocker "Escalation provider '$ESCALATION' made no meaningful progress."
+        banner "escalation no progress; stopping"
+        break
+      fi
+
+      if escalation_requested; then
+        set_escalation_blocker "Escalation provider '$ESCALATION' did not clear the blocker."
+        banner "escalation unresolved; stopping"
+        break
+      fi
+
+      ESCALATION_FAILURES=$((ESCALATION_FAILURES + 1))
+      STAGE="controller_review"
+      ;;
+    *)
+      STAGE="controller_plan"
+      ;;
+  esac
+
+  save_state
+
+  if status_complete; then
+    banner "project marked complete"
+    break
+  fi
+
+  sleep 2
+done
+
+echo "[worker finished]" | tee -a "$LOG_FILE"

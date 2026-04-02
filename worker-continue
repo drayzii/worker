@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "usage: worker-continue <project-name> [--controller codex|claude] [--executor codex|claude] [--escalation codex|claude] [extra instructions...]" >&2
+  exit 2
+}
+
+[ $# -lt 1 ] && usage
+
+NAME="$1"
+shift || true
+
+BASE="$HOME/Projects/$NAME"
+SESSION="worker-$NAME"
+ACTIVE_FILE="$BASE/.worker/ACTIVE.pid"
+ROLES_FILE="$BASE/.worker/roles.env"
+RUNTIME_FILE="$BASE/.worker/runtime.env"
+EXTRA_FILE="$BASE/.worker/continue-extra.txt"
+RUNNER="$HOME/bin/worker-runner"
+PLAN_FILE="$BASE/PLAN.md"
+TASK_FILE="$BASE/TASK.md"
+REVIEW_FILE="$BASE/REVIEW.md"
+STATUS_FILE="$BASE/.worker/status.md"
+
+[ ! -d "$BASE" ] && { echo "Project not found: $BASE" >&2; exit 1; }
+
+NEW_CONTROLLER=""
+NEW_EXECUTOR=""
+NEW_ESCALATION=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --controller) NEW_CONTROLLER="${2:-}"; shift 2 ;;
+    --executor) NEW_EXECUTOR="${2:-}"; shift 2 ;;
+    --escalation) NEW_ESCALATION="${2:-}"; shift 2 ;;
+    --) shift; break ;;
+    -*) echo "Unknown option: $1" >&2; usage ;;
+    *) break ;;
+  esac
+done
+
+EXTRA="$*"
+
+mkdir -p "$BASE/.worker/logs"
+cd "$BASE"
+
+if [ -f "$ROLES_FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$ROLES_FILE"
+else
+  CONTROLLER="codex"
+  EXECUTOR="codex"
+  ESCALATION="claude"
+fi
+
+[ -n "$NEW_CONTROLLER" ] && CONTROLLER="$NEW_CONTROLLER"
+[ -n "$NEW_EXECUTOR" ] && EXECUTOR="$NEW_EXECUTOR"
+[ -n "$NEW_ESCALATION" ] && ESCALATION="$NEW_ESCALATION"
+
+cat > "$ROLES_FILE" <<EOF2
+CONTROLLER=$CONTROLLER
+EXECUTOR=$EXECUTOR
+ESCALATION=$ESCALATION
+EOF2
+
+cat > "$EXTRA_FILE" <<EOF2
+Resume from the current repo state.
+Do not ask for confirmation.
+Use PLAN.md, TASK.md, REVIEW.md, and .worker/status.md as the source of truth.
+$EXTRA
+EOF2
+
+rm -f "$ACTIVE_FILE"
+
+python3 - "$STATUS_FILE" "$PLAN_FILE" "$TASK_FILE" "$REVIEW_FILE" <<'PY'
+import pathlib, re, sys
+
+status_file = pathlib.Path(sys.argv[1])
+plan_file = pathlib.Path(sys.argv[2])
+task_file = pathlib.Path(sys.argv[3])
+review_file = pathlib.Path(sys.argv[4])
+
+def nonempty(p: pathlib.Path) -> bool:
+    return p.exists() and p.stat().st_size > 0
+
+status = status_file.read_text() if status_file.exists() else ""
+
+have_any_artifacts = nonempty(plan_file) or nonempty(task_file) or nonempty(review_file)
+
+def set_field(text: str, key: str, value: str) -> str:
+    pat = rf'^{re.escape(key)}:.*$'
+    rep = f'{key}: {value}'
+    if re.search(pat, text, flags=re.M):
+        return re.sub(pat, rep, text, flags=re.M)
+    return text.rstrip() + ('\n' if text and not text.endswith('\n') else '') + rep + '\n'
+
+m = re.search(r'^CONTROLLER_DECISION:\s*(.*)$', status, flags=re.M)
+decision = m.group(1).strip().upper() if m else ""
+
+if have_any_artifacts and decision in {"PLAN", "REPLAN"}:
+    status = set_field(status, "CONTROLLER_DECISION", "REVISE")
+    status_file.write_text(status)
+PY
+
+START_STAGE="$(python3 - "$STATUS_FILE" "$PLAN_FILE" "$TASK_FILE" "$REVIEW_FILE" <<'PY'
+import pathlib, re, sys
+
+status_file = pathlib.Path(sys.argv[1])
+plan_file = pathlib.Path(sys.argv[2])
+task_file = pathlib.Path(sys.argv[3])
+review_file = pathlib.Path(sys.argv[4])
+
+def nonempty(p: pathlib.Path) -> bool:
+    return p.exists() and p.stat().st_size > 0
+
+status = status_file.read_text() if status_file.exists() else ""
+
+def field(name: str) -> str:
+    m = re.search(rf'^{re.escape(name)}:\s*(.*)$', status, flags=re.M)
+    return m.group(1).strip().upper() if m else ""
+
+have_plan = nonempty(plan_file)
+have_task = nonempty(task_file)
+have_review = nonempty(review_file)
+
+decision = field("CONTROLLER_DECISION")
+escalate = field("ESCALATE_TO_PROVIDER")
+status_value = field("STATUS")
+
+if escalate in {"YES", "TRUE", "1"}:
+    print("escalation")
+elif have_task and status_value != "COMPLETE":
+    print("executor")
+elif have_plan and have_review:
+    print("controller_review")
+else:
+    print("controller_plan")
+PY
+)"
+
+if [ -f "$RUNTIME_FILE" ]; then
+  python3 - "$RUNTIME_FILE" "$START_STAGE" <<'PY'
+import pathlib, re, sys
+p = pathlib.Path(sys.argv[1])
+start_stage = sys.argv[2]
+text = p.read_text()
+
+def sub_or_add(text, key, value):
+    pat = rf'^{key}=.*$'
+    rep = f'{key}={value}'
+    if re.search(pat, text, flags=re.M):
+        return re.sub(pat, rep, text, flags=re.M)
+    return text.rstrip() + '\n' + rep + '\n'
+
+text = sub_or_add(text, 'ITERATION', '0')
+text = sub_or_add(text, 'STAGE', start_stage)
+text = sub_or_add(text, 'EXECUTOR_FAILURES', '0')
+text = sub_or_add(text, 'ESCALATION_FAILURES', '0')
+text = sub_or_add(text, 'CONTROLLER_FAILURES', '0')
+p.write_text(text)
+PY
+else
+  cat > "$RUNTIME_FILE" <<EOF2
+ITERATION=0
+STAGE=$START_STAGE
+EXECUTOR_FAILURES=0
+ESCALATION_FAILURES=0
+CONTROLLER_FAILURES=0
+EOF2
+fi
+
+echo "Resuming at stage: $START_STAGE"
+
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  tmux send-keys -t "$SESSION" C-c
+  tmux send-keys -t "$SESSION" "cd \"$BASE\"" C-m
+  tmux send-keys -t "$SESSION" "\"$RUNNER\" \"$BASE\" continue" C-m
+else
+  tmux new-session -d -s "$SESSION" "cd \"$BASE\" && \"$RUNNER\" \"$BASE\" continue; echo; echo '[worker shell ready]'; exec zsh"
+fi
