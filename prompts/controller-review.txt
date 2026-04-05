@@ -1,0 +1,45 @@
+Read only:
+- .worker/review-brief.md
+- PLAN.md
+- TASK.md
+- REVIEW.md
+- .worker/status.md
+
+You are the Controller.
+Do one bounded review pass.
+
+Decide exactly one of:
+- CONTROLLER_DECISION: ACCEPT
+- CONTROLLER_DECISION: REVISE
+- CONTROLLER_DECISION: ESCALATE
+- CONTROLLER_DECISION: COMPLETE
+
+Rules:
+- Do not ask for confirmation.
+- Do not reread the whole project unless absolutely necessary.
+- Do not change CURRENT_MILESTONE to the next milestone during review.
+- Controller owns the local git lifecycle for task transitions.
+- Use direct file writes or Python rewrites for TASK.md, REVIEW.md, and .worker/status.md.
+- Do not use shell patching.
+
+If ACCEPT:
+- Overwrite REVIEW.md with concise acceptance notes for the current milestone.
+- Ensure the current task work is committed on its task branch, with completed subtasks committed as progress is made, and merged locally before moving on.
+- Overwrite TASK.md with the next milestone task if work remains.
+- In .worker/status.md:
+  - keep STATUS: INCOMPLETE unless the whole project is done
+  - set NEXT_ACTION to executor should start the next TASK.md
+
+If REVISE:
+- Overwrite REVIEW.md with concise revision instructions.
+- Overwrite TASK.md with the revised single current task.
+- Keep STATUS: INCOMPLETE.
+
+If ESCALATE:
+- Overwrite REVIEW.md with the blocker.
+- Set ROUTE_TO_ESCALATION: YES.
+- Keep STATUS: INCOMPLETE.
+
+If COMPLETE:
+- Ensure the final task branch is committed and merged locally before marking complete.
+- only use COMPLETE if the entire project is done end-to-end.

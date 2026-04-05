@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/worker-common.sh"
+
 usage() {
   echo "usage: worker-continue <project-name> [--controller codex|claude] [--executor codex|claude] [--escalation codex|claude] [extra instructions...]" >&2
   exit 2
@@ -11,19 +15,8 @@ usage() {
 NAME="$1"
 shift || true
 
-BASE="$HOME/Projects/$NAME"
-SESSION="worker-$NAME"
-ACTIVE_FILE="$BASE/.worker/ACTIVE.pid"
-ROLES_FILE="$BASE/.worker/roles.env"
-RUNTIME_FILE="$BASE/.worker/runtime.env"
-EXTRA_FILE="$BASE/.worker/continue-extra.txt"
-RUNNER="$HOME/bin/worker-runner"
-PLAN_FILE="$BASE/PLAN.md"
-TASK_FILE="$BASE/TASK.md"
-REVIEW_FILE="$BASE/REVIEW.md"
-STATUS_FILE="$BASE/.worker/status.md"
-
-[ ! -d "$BASE" ] && { echo "Project not found: $BASE" >&2; exit 1; }
+worker_set_project_paths_from_name "$NAME"
+worker_require_project_dir
 
 NEW_CONTROLLER=""
 NEW_EXECUTOR=""
@@ -42,34 +35,25 @@ done
 
 EXTRA="$*"
 
-mkdir -p "$BASE/.worker/logs"
+mkdir -p "$LOG_DIR"
 cd "$BASE"
 
-if [ -f "$ROLES_FILE" ]; then
-  # shellcheck disable=SC1090
-  source "$ROLES_FILE"
-else
-  CONTROLLER="codex"
-  EXECUTOR="codex"
-  ESCALATION="claude"
-fi
+worker_load_roles
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/worker-runner-prompts.sh"
 
 [ -n "$NEW_CONTROLLER" ] && CONTROLLER="$NEW_CONTROLLER"
 [ -n "$NEW_EXECUTOR" ] && EXECUTOR="$NEW_EXECUTOR"
 [ -n "$NEW_ESCALATION" ] && ESCALATION="$NEW_ESCALATION"
 
-cat > "$ROLES_FILE" <<EOF2
-CONTROLLER=$CONTROLLER
-EXECUTOR=$EXECUTOR
-ESCALATION=$ESCALATION
-EOF2
+worker_write_roles
 
-cat > "$EXTRA_FILE" <<EOF2
-Resume from the current repo state.
-Do not ask for confirmation.
-Use PLAN.md, TASK.md, REVIEW.md, and .worker/status.md as the source of truth.
-$EXTRA
-EOF2
+{
+  read_template_file continue-extra.txt
+  if [ -n "$EXTRA" ]; then
+    printf '%s\n' "$EXTRA"
+  fi
+} > "$EXTRA_FILE"
 
 rm -f "$ACTIVE_FILE"
 
@@ -85,7 +69,6 @@ def nonempty(p: pathlib.Path) -> bool:
     return p.exists() and p.stat().st_size > 0
 
 status = status_file.read_text() if status_file.exists() else ""
-
 have_any_artifacts = nonempty(plan_file) or nonempty(task_file) or nonempty(review_file)
 
 def set_field(text: str, key: str, value: str) -> str:
@@ -124,8 +107,7 @@ have_plan = nonempty(plan_file)
 have_task = nonempty(task_file)
 have_review = nonempty(review_file)
 
-decision = field("CONTROLLER_DECISION")
-escalate = field("ESCALATE_TO_PROVIDER")
+escalate = field("ROUTE_TO_ESCALATION")
 status_value = field("STATUS")
 
 if escalate in {"YES", "TRUE", "1"}:
@@ -139,8 +121,8 @@ else:
 PY
 )"
 
-if [ -f "$RUNTIME_FILE" ]; then
-  python3 - "$RUNTIME_FILE" "$START_STAGE" <<'PY'
+if [ -f "$STATE_FILE" ]; then
+  python3 - "$STATE_FILE" "$START_STAGE" <<'PY'
 import pathlib, re, sys
 p = pathlib.Path(sys.argv[1])
 start_stage = sys.argv[2]
@@ -161,13 +143,13 @@ text = sub_or_add(text, 'CONTROLLER_FAILURES', '0')
 p.write_text(text)
 PY
 else
-  cat > "$RUNTIME_FILE" <<EOF2
+  cat > "$STATE_FILE" <<EOF
 ITERATION=0
 STAGE=$START_STAGE
 EXECUTOR_FAILURES=0
 ESCALATION_FAILURES=0
 CONTROLLER_FAILURES=0
-EOF2
+EOF
 fi
 
 echo "Resuming at stage: $START_STAGE"
@@ -175,7 +157,7 @@ echo "Resuming at stage: $START_STAGE"
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   tmux send-keys -t "$SESSION" C-c
   tmux send-keys -t "$SESSION" "cd \"$BASE\"" C-m
-  tmux send-keys -t "$SESSION" "\"$RUNNER\" \"$BASE\" continue" C-m
+  tmux send-keys -t "$SESSION" "\"$RUNNER_BIN\" \"$BASE\" continue" C-m
 else
-  tmux new-session -d -s "$SESSION" "cd \"$BASE\" && \"$RUNNER\" \"$BASE\" continue; echo; echo '[worker shell ready]'; exec zsh"
+  tmux new-session -d -s "$SESSION" "cd \"$BASE\" && \"$RUNNER_BIN\" \"$BASE\" continue; echo; echo '[worker shell ready]'; exec zsh"
 fi

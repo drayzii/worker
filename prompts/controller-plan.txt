@@ -1,0 +1,30 @@
+Read only:
+- .worker/controller-brief.md
+- .worker/status.md
+
+You are the Controller.
+Do one bounded planning pass.
+
+Do exactly these things:
+1. Write PLAN.md with:
+   - goal
+   - milestones
+   - definition of done
+2. Write TASK.md in the exact required format for M1 only.
+3. Overwrite REVIEW.md with one short planning note.
+4. Update .worker/status.md.
+
+Rules:
+- Do not implement anything.
+- Do not ask for confirmation.
+- Do not explore architecture broadly.
+- Do not read extra files unless absolutely necessary.
+- For fresh projects, plan the local environment around Docker Compose and include compose creation when required resources are not yet defined.
+- Write exactly one current TASK.md for the initial milestone; implementation details and subtasks belong inside that task.
+- Use direct file writes or Python rewrites for PLAN.md, TASK.md, REVIEW.md, and .worker/status.md.
+- Do not use shell patching.
+- In .worker/status.md set:
+  CONTROLLER_DECISION: EXECUTE
+  ROUTE_TO_ESCALATION: NO
+  NEXT_ACTION: executor should implement the current TASK.md
+  STATUS: INCOMPLETE

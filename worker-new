@@ -1,26 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/worker-common.sh"
+
 usage() {
   echo "usage: worker-new <project-name> [--controller codex|claude] [--executor codex|claude] [--escalation codex|claude] <project prompt...>" >&2
   exit 2
-}
-
-stamp_file_end() {
-  local file="$1"
-  local ts="$2"
-  python3 - "$file" "$ts" <<'PY'
-import pathlib, re, sys
-p = pathlib.Path(sys.argv[1])
-ts = sys.argv[2]
-text = p.read_text() if p.exists() else ""
-text = re.sub(r'\n*UPDATED_AT:\s*[^\n]*\s*\Z', '', text, flags=re.S)
-text = text.rstrip('\n')
-if text:
-    text += '\n\n'
-text += f'UPDATED_AT: {ts}\n'
-p.write_text(text)
-PY
 }
 
 [ $# -lt 2 ] && usage
@@ -28,9 +15,8 @@ PY
 NAME="$1"
 shift
 
-CONTROLLER="codex"
-EXECUTOR="codex"
-ESCALATION="claude"
+worker_set_project_paths_from_name "$NAME"
+worker_default_roles
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -46,84 +32,51 @@ done
 PROMPT="$*"
 [ -z "$PROMPT" ] && usage
 
-BASE="$HOME/Projects/$NAME"
-SESSION="worker-$NAME"
-SYSTEM_PROMPT_FILE="$HOME/.config/ai-worker/system-prompt.txt"
-
-mkdir -p "$BASE/.worker/tools" "$BASE/.worker/logs" "$HOME/.config/ai-worker"
+mkdir -p "$BASE/.worker/tools" "$LOG_DIR"
 cd "$BASE"
 
 if [ ! -d .git ]; then
   git init
 fi
 
-cat > "$SYSTEM_PROMPT_FILE" <<'SPROMPT'
-You are part of an autonomous software-engineering workflow.
+read_template_file WORKER.md > "$WORKER_RULES_FILE"
 
-Global rules:
-- Work autonomously from the project prompt and project files.
-- Do not ask for confirmation.
-- Either continue, revise, replan, escalate, or mark complete.
-- Use local models only for tiny boilerplate or optional manual summaries, not for orchestration.
-- If the project has a UI, use Playwright for critical paths.
-- Use 21st.dev as design inspiration when frontend design matters.
-- Never deploy unless explicitly requested in the original project prompt.
-SPROMPT
-
-cat > "$BASE/CLAUDE.md" <<'EOF2'
-# Project worker rules
-
-- Controller owns PLAN.md, TASK.md, REVIEW.md, and commit decisions.
-- Executor only implements the current TASK.md.
-- Escalation only handles the current blocker.
-- Do not ask for confirmation.
-- Do not use local models for planning, review, milestone order, debugging strategy, or test-loop control.
-- .worker/status.md is runtime state only.
-EOF2
-
-cat > "$BASE/.worker/tools/local-llm" <<'EOF2'
+cat > "$BASE/.worker/tools/local-llm" <<'EOF'
 #!/usr/bin/env bash
-exec "$HOME/bin/local-llm" "$@"
-EOF2
+exec "__LOCAL_LLM_BIN__" "$@"
+EOF
+python3 - "$BASE/.worker/tools/local-llm" "$LOCAL_LLM_BIN" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+target = sys.argv[2]
+path.write_text(path.read_text().replace("__LOCAL_LLM_BIN__", target))
+PY
 chmod +x "$BASE/.worker/tools/local-llm"
 
-cat > "$BASE/.worker/roles.env" <<EOF2
-CONTROLLER=$CONTROLLER
-EXECUTOR=$EXECUTOR
-ESCALATION=$ESCALATION
-EOF2
+worker_write_roles
 
-cat > "$BASE/.worker/status.md" <<'EOF2'
-PHASE: Starting
-CURRENT_MILESTONE:
-LAST_ACTION: initialized worker
-NEXT_ACTION: controller should create PLAN.md and TASK.md
-CONTROLLER_DECISION: PLAN
-ESCALATE_TO_PROVIDER: NO
-BLOCKER:
-STATUS: INCOMPLETE
-EOF2
+read_template_file status.md > "$STATUS_FILE"
 
-: > "$BASE/PLAN.md"
-: > "$BASE/TASK.md"
-: > "$BASE/REVIEW.md"
-: > "$BASE/.worker/logs/run.log"
-: > "$BASE/.worker/logs/current-run.ndjson"
-: > "$BASE/.worker/controller-brief.md"
-: > "$BASE/.worker/executor-brief.md"
-: > "$BASE/.worker/review-brief.md"
-: > "$BASE/.worker/escalation-brief.md"
-rm -f "$BASE/.worker/runtime.env" "$BASE/.worker/ACTIVE.pid" "$BASE/.worker/continue-extra.txt"
+: > "$PLAN_FILE"
+: > "$TASK_FILE"
+: > "$REVIEW_FILE"
+: > "$LOG_FILE"
+: > "$TEMP_FILE"
+: > "$CONTROLLER_BRIEF_FILE"
+: > "$EXECUTOR_BRIEF_FILE"
+: > "$REVIEW_BRIEF_FILE"
+: > "$ESCALATION_BRIEF_FILE"
+rm -f "$STATE_FILE" "$ACTIVE_FILE" "$EXTRA_FILE"
 
-STAMP_TS="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-stamp_file_end "$BASE/PLAN.md" "$STAMP_TS"
-stamp_file_end "$BASE/TASK.md" "$STAMP_TS"
-stamp_file_end "$BASE/REVIEW.md" "$STAMP_TS"
-stamp_file_end "$BASE/.worker/status.md" "$STAMP_TS"
+STAMP_TS="$(worker_utc_now)"
+worker_stamp_file_end "$PLAN_FILE" "$STAMP_TS"
+worker_stamp_file_end "$TASK_FILE" "$STAMP_TS"
+worker_stamp_file_end "$REVIEW_FILE" "$STAMP_TS"
+worker_stamp_file_end "$STATUS_FILE" "$STAMP_TS"
 
-printf '%s\n' "$PROMPT" > "$BASE/.worker/initial-prompt.txt"
+printf '%s\n' "$PROMPT" > "$INITIAL_PROMPT_FILE"
 
-CMD="cd '$BASE' && '$HOME/bin/worker-runner' '$BASE' new; echo; echo '[worker shell ready]'; exec zsh"
+CMD="cd '$BASE' && '$RUNNER_BIN' '$BASE' new; echo; echo '[worker shell ready]'; exec zsh"
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   tmux kill-session -t "$SESSION"
@@ -135,4 +88,4 @@ echo "started"
 echo "project: $BASE"
 echo "session: $SESSION"
 echo "roles: controller=$CONTROLLER executor=$EXECUTOR escalation=$ESCALATION"
-echo "log: $BASE/.worker/logs/run.log"
+echo "log: $LOG_FILE"

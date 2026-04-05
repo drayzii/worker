@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/worker-common.sh"
+
 NAME="${1:?usage: worker-status <project-name>}"
-BASE="$HOME/Projects/$NAME"
-
-TASK_FILE="$BASE/TASK.md"
-REVIEW_FILE="$BASE/REVIEW.md"
-STATUS_FILE="$BASE/.worker/status.md"
-
-if [ ! -d "$BASE" ]; then
-  echo "Project not found: $BASE" >&2
-  exit 1
-fi
+worker_set_project_paths_from_name "$NAME"
+worker_require_project_dir
 
 echo "=== TASK.md ==="
 cat "$TASK_FILE" 2>/dev/null || echo "missing"

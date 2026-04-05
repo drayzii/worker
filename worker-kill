@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/worker-common.sh"
+
 NAME="${1:?usage: worker-stop <project-name> [--purge-volumes]}"
 PURGE_VOLUMES="${2:-}"
 
-BASE="$HOME/Projects/$NAME"
-SESSION="worker-$NAME"
+worker_set_project_paths_from_name "$NAME"
 
 echo "Before:"
 tmux ls 2>/dev/null || echo "No tmux sessions"

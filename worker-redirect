@@ -1,56 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/worker-common.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/worker-runner-prompts.sh"
+
 usage() {
   echo "usage: worker-redirect <project-name> <redirect instructions...>" >&2
   exit 2
-}
-
-stamp_file_end() {
-  local file="$1"
-  local stamp="$2"
-  python3 - "$file" "$stamp" <<'PY'
-import pathlib, re, sys
-p = pathlib.Path(sys.argv[1])
-stamp = sys.argv[2]
-text = p.read_text() if p.exists() else ""
-text = re.sub(r'\n*UPDATED_AT:\s*[^\n]*\s*\Z', '', text, flags=re.S)
-text = text.rstrip('\n')
-if text:
-    text += '\n\n'
-text += f'UPDATED_AT: {stamp}\n'
-p.write_text(text)
-PY
-}
-
-fingerprint() {
-  python3 - "$PLAN_FILE" "$TASK_FILE" "$REVIEW_FILE" "$STATUS_FILE" <<'PY'
-import hashlib, pathlib, re, sys
-parts = []
-for path in sys.argv[1:]:
-    p = pathlib.Path(path)
-    text = p.read_text() if p.exists() else ""
-    text = re.sub(r'\n*UPDATED_AT:\s*[^\n]*\s*\Z', '', text, flags=re.S)
-    parts.append(text)
-print(hashlib.sha256("\n---\n".join(parts).encode()).hexdigest())
-PY
-}
-
-provider_auth_failed() {
-  grep -Eiq 'authentication_failed|Not logged in|Please run /login' "$TEMP_FILE" 2>/dev/null
-}
-
-provider_noop() {
-  grep -Eiq 'shall i proceed|want me to proceed|ready to proceed|acknowledged|confirmed\.|i.ve read all five files|do you want me to' "$TEMP_FILE" 2>/dev/null
-}
-
-stamp_artifacts() {
-  local stamp
-  stamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-  stamp_file_end "$PLAN_FILE" "$stamp"
-  stamp_file_end "$TASK_FILE" "$stamp"
-  stamp_file_end "$REVIEW_FILE" "$stamp"
-  stamp_file_end "$STATUS_FILE" "$stamp"
 }
 
 [ $# -lt 2 ] && usage
@@ -59,47 +18,18 @@ NAME="$1"
 shift
 REDIRECT="$*"
 
-BASE="$HOME/Projects/$NAME"
-SESSION="worker-$NAME"
-ACTIVE_FILE="$BASE/.worker/ACTIVE.pid"
-ROLES_FILE="$BASE/.worker/roles.env"
-LOG_FILE="$BASE/.worker/logs/run.log"
-TEMP_FILE="$BASE/.worker/logs/current-run.ndjson"
-STATUS_FILE="$BASE/.worker/status.md"
-PLAN_FILE="$BASE/PLAN.md"
-TASK_FILE="$BASE/TASK.md"
-REVIEW_FILE="$BASE/REVIEW.md"
-SYSTEM_PROMPT_FILE="$HOME/.config/ai-worker/system-prompt.txt"
-REDIRECT_BRIEF_FILE="$BASE/.worker/redirect-brief.md"
+worker_set_project_paths_from_name "$NAME"
+worker_require_project_dir
 
-[ ! -d "$BASE" ] && { echo "Project not found: $BASE" >&2; exit 1; }
-
-mkdir -p "$BASE/.worker/logs"
+mkdir -p "$LOG_DIR"
 cd "$BASE"
 
-if [ -f "$ROLES_FILE" ]; then
-  # shellcheck disable=SC1090
-  source "$ROLES_FILE"
-else
-  CONTROLLER="codex"
-fi
+worker_load_roles
 
-# Stop active runner/session
-if [ -f "$ACTIVE_FILE" ]; then
-  PID="$(cat "$ACTIVE_FILE" 2>/dev/null || true)"
-  if [ -n "${PID:-}" ] && kill -0 "$PID" 2>/dev/null; then
-    kill -TERM "$PID" 2>/dev/null || true
-    sleep 1
-    if kill -0 "$PID" 2>/dev/null; then
-      kill -KILL "$PID" 2>/dev/null || true
-    fi
-  fi
-  rm -f "$ACTIVE_FILE"
-fi
-
+worker_stop_active_pid
 tmux kill-session -t "$SESSION" 2>/dev/null || true
 
-cat > "$REDIRECT_BRIEF_FILE" <<EOF2
+cat > "$REDIRECT_BRIEF_FILE" <<EOF
 OPERATOR REDIRECT:
 $REDIRECT
 
@@ -108,38 +38,14 @@ FILES TO CONSIDER:
 - TASK.md
 - REVIEW.md
 - .worker/status.md
-EOF2
+EOF
 
-PROMPT="$(cat <<'PROMPT'
-Read only these files:
-- .worker/redirect-brief.md
-- PLAN.md
-- TASK.md
-- REVIEW.md
-- .worker/status.md
-- CLAUDE.md
+PROMPT="$(make_redirect_prompt)"
 
-You are the Controller.
-
-Apply the operator redirect to the worker artifacts only.
-
-Your job:
-- Rewrite whichever of PLAN.md, TASK.md, REVIEW.md, and .worker/status.md need changing so the workflow now follows the operator redirect.
-- Make the minimal necessary edits.
-- Preserve the existing workflow semantics.
-- Do not invent synthetic milestones.
-- Do not arbitrarily reset or change PHASE, CURRENT_MILESTONE, CONTROLLER_DECISION, NEXT_ACTION, or ESCALATE_TO_PROVIDER unless the redirect logically requires those fields to change.
-- Do not implement product code.
-- Do not ask for confirmation.
-- Do not use shell patching. Use direct file writes or Python rewrites only.
-- Do not add PR/remote/deploy steps unless explicitly requested.
-PROMPT
-)"
-
-stamp_artifacts
-BEFORE_FP="$(fingerprint)"
+worker_stamp_artifacts
+BEFORE_FP="$(worker_fingerprint_files "$PLAN_FILE" "$TASK_FILE" "$REVIEW_FILE" "$STATUS_FILE")"
 : > "$TEMP_FILE"
-echo "=== redirect controller=$CONTROLLER | $(date '+%a %b %d %H:%M:%S %Z %Y') ===" | tee -a "$LOG_FILE"
+echo "=== redirect controller=$CONTROLLER | $(worker_ts) ===" | tee -a "$LOG_FILE"
 
 if [ "$CONTROLLER" = "codex" ]; then
   codex exec --json "$PROMPT" 2>&1 | tee -a "$LOG_FILE" | tee "$TEMP_FILE"
@@ -158,7 +64,7 @@ else
 fi
 
 if [ "$EXIT_CODE" -ne 0 ]; then
-  if provider_auth_failed; then
+  if worker_provider_auth_failed; then
     echo "Controller provider '$CONTROLLER' is not authenticated." >&2
   else
     echo "Controller redirect step failed." >&2
@@ -166,10 +72,10 @@ if [ "$EXIT_CODE" -ne 0 ]; then
   exit 1
 fi
 
-stamp_artifacts
-AFTER_FP="$(fingerprint)"
+worker_stamp_artifacts
+AFTER_FP="$(worker_fingerprint_files "$PLAN_FILE" "$TASK_FILE" "$REVIEW_FILE" "$STATUS_FILE")"
 
-if provider_noop || [ "$BEFORE_FP" = "$AFTER_FP" ]; then
+if worker_provider_noop || [ "$BEFORE_FP" = "$AFTER_FP" ]; then
   echo "Controller did not make meaningful artifact changes." >&2
   exit 1
 fi

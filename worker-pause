@@ -1,28 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/worker-common.sh"
+
 NAME="${1:?usage: worker-pause <project-name>}"
-BASE="$HOME/Projects/$NAME"
-SESSION="worker-$NAME"
-ACTIVE_FILE="$BASE/.worker/ACTIVE.pid"
+worker_set_project_paths_from_name "$NAME"
+worker_require_project_dir
 
-if [ ! -d "$BASE" ]; then
-  echo "Project not found: $BASE" >&2
-  exit 1
-fi
-
-if [ -f "$ACTIVE_FILE" ]; then
-  PID="$(cat "$ACTIVE_FILE" 2>/dev/null || true)"
-  if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
-    kill -TERM "$PID" 2>/dev/null || true
-    sleep 1
-    if kill -0 "$PID" 2>/dev/null; then
-      kill -KILL "$PID" 2>/dev/null || true
-    fi
-    echo "Stopped runner pid: $PID"
-  fi
-  rm -f "$ACTIVE_FILE"
-fi
+worker_stop_active_pid
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   tmux kill-session -t "$SESSION"

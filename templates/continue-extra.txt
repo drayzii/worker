@@ -1,0 +1,3 @@
+Resume from the current repo state.
+Do not ask for confirmation.
+Use PLAN.md, TASK.md, REVIEW.md, and .worker/status.md as the source of truth.
