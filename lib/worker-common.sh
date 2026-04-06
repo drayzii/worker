@@ -15,6 +15,39 @@ worker_set_project_paths_from_name() {
   worker_set_project_paths_from_base "$BASE"
 }
 
+worker_abs_path() {
+  local target="$1"
+  if [ "${target#~/}" != "$target" ]; then
+    target="$HOME/${target#~/}"
+  fi
+  (
+    cd "$target" 2>/dev/null && pwd
+  )
+}
+
+worker_resolve_project_dir() {
+  local selector="${1:?missing project selector}"
+
+  if [ "$selector" = "." ]; then
+    pwd
+  elif [ "$selector" = ".." ] || [ "${selector#./}" != "$selector" ] || [ "${selector#../}" != "$selector" ] || [ "${selector#/}" != "$selector" ] || [ "${selector#~}" != "$selector" ] || [ "${selector#*/}" != "$selector" ]; then
+    worker_abs_path "$selector"
+  else
+    printf '%s\n' "$HOME/Projects/$selector"
+  fi
+}
+
+worker_session_name_for_base() {
+  local base="$1"
+  printf 'worker-%s\n' "$(basename "$base")"
+}
+
+worker_set_project_paths_from_selector() {
+  BASE="$(worker_resolve_project_dir "$1")"
+  SESSION="$(worker_session_name_for_base "$BASE")"
+  worker_set_project_paths_from_base "$BASE"
+}
+
 worker_set_project_paths_from_base() {
   REPO_DIR="$(worker_repo_dir)"
   BASE="$1"

@@ -6,16 +6,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/worker-common.sh"
 
 usage() {
-  echo "usage: worker-continue <project-name> [--controller codex|claude] [--executor codex|claude] [--escalation codex|claude] [extra instructions...]" >&2
+  echo "usage: worker-continue <project-name|.|path> [--controller codex|claude] [--executor codex|claude] [--escalation codex|claude] [extra instructions...]" >&2
   exit 2
 }
 
 [ $# -lt 1 ] && usage
 
-NAME="$1"
+PROJECT_SELECTOR="$1"
 shift || true
 
-worker_set_project_paths_from_name "$NAME"
+worker_set_project_paths_from_selector "$PROJECT_SELECTOR"
 worker_require_project_dir
 
 NEW_CONTROLLER=""

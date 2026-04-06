@@ -6,16 +6,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/worker-common.sh"
 
 usage() {
-  echo "usage: worker-new <project-name> [--controller codex|claude] [--executor codex|claude] [--escalation codex|claude] <project prompt...>" >&2
+  echo "usage: worker-new <project-name|.|path> [--controller codex|claude] [--executor codex|claude] [--escalation codex|claude] [project prompt...]" >&2
   exit 2
 }
 
-[ $# -lt 2 ] && usage
+[ $# -lt 1 ] && usage
 
-NAME="$1"
+PROJECT_SELECTOR="$1"
 shift
 
-worker_set_project_paths_from_name "$NAME"
+worker_set_project_paths_from_selector "$PROJECT_SELECTOR"
 worker_default_roles
 
 while [ $# -gt 0 ]; do
@@ -30,8 +30,8 @@ while [ $# -gt 0 ]; do
 done
 
 PROMPT="$*"
-[ -z "$PROMPT" ] && usage
 
+worker_require_project_dir
 mkdir -p "$BASE/.worker/tools" "$LOG_DIR"
 cd "$BASE"
 
@@ -74,7 +74,26 @@ worker_stamp_file_end "$TASK_FILE" "$STAMP_TS"
 worker_stamp_file_end "$REVIEW_FILE" "$STAMP_TS"
 worker_stamp_file_end "$STATUS_FILE" "$STAMP_TS"
 
-printf '%s\n' "$PROMPT" > "$INITIAL_PROMPT_FILE"
+PRD_FILE="$BASE/PRD.md"
+[ -n "$PROMPT" ] || [ -f "$PRD_FILE" ] || {
+  echo "usage: worker-new <project-name|.|path> [--controller codex|claude] [--executor codex|claude] [--escalation codex|claude] [project prompt...]" >&2
+  echo "Provide a prompt or add PRD.md to the project directory." >&2
+  exit 2
+}
+
+{
+  if [ -n "$PROMPT" ]; then
+    printf 'PROJECT PROMPT:\n%s\n' "$PROMPT"
+  fi
+  if [ -f "$PRD_FILE" ]; then
+    if [ -n "$PROMPT" ]; then
+      printf '\n'
+    fi
+    printf 'PRD.md:\n'
+    cat "$PRD_FILE"
+    printf '\n'
+  fi
+} > "$INITIAL_PROMPT_FILE"
 
 CMD="cd '$BASE' && '$RUNNER_BIN' '$BASE' new; echo; echo '[worker shell ready]'; exec zsh"
 

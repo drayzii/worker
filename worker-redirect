@@ -8,17 +8,17 @@ source "$SCRIPT_DIR/lib/worker-common.sh"
 source "$SCRIPT_DIR/lib/worker-runner-prompts.sh"
 
 usage() {
-  echo "usage: worker-redirect <project-name> <redirect instructions...>" >&2
+  echo "usage: worker-redirect <project-name|.|path> <redirect instructions...>" >&2
   exit 2
 }
 
 [ $# -lt 2 ] && usage
 
-NAME="$1"
+PROJECT_SELECTOR="$1"
 shift
 REDIRECT="$*"
 
-worker_set_project_paths_from_name "$NAME"
+worker_set_project_paths_from_selector "$PROJECT_SELECTOR"
 worker_require_project_dir
 
 mkdir -p "$LOG_DIR"
@@ -81,4 +81,4 @@ if worker_provider_noop || [ "$BEFORE_FP" = "$AFTER_FP" ]; then
 fi
 
 echo "Redirect applied. Session stopped. Review artifacts, then run:"
-echo "worker-continue $NAME"
+echo "worker-continue \"$BASE\""

@@ -5,8 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/worker-common.sh"
 
-NAME="${1:?usage: worker-status <project-name>}"
-worker_set_project_paths_from_name "$NAME"
+PROJECT_SELECTOR="${1:?usage: worker-status <project-name|.|path>}"
+worker_set_project_paths_from_selector "$PROJECT_SELECTOR"
 worker_require_project_dir
 
 echo "=== TASK.md ==="
