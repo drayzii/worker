@@ -109,6 +109,7 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
       post_turn_guard
       sanitize_controller_decision
       worker_stamp_artifacts
+      worker_refresh_graph_context "post-executor-turn" | tee -a "$LOG_FILE" || true
       AFTER_FP="$(state_fingerprint)"
       if worker_provider_noop || { [ "$BEFORE_FP" = "$AFTER_FP" ] && ! escalation_requested; }; then
         EXECUTOR_FAILURES=$((EXECUTOR_FAILURES + 1))
@@ -145,6 +146,7 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
       post_turn_guard
       sanitize_controller_decision
       worker_stamp_artifacts
+      worker_refresh_graph_context "post-escalation-turn" | tee -a "$LOG_FILE" || true
       AFTER_FP="$(state_fingerprint)"
       DECISION="$(controller_decision)"
 

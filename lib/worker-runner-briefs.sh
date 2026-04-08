@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 
 write_controller_brief() {
-  local project_prompt extra current_status important_files file_tree
+  local project_prompt extra current_status important_files file_tree graph_report
   project_prompt="$(latest_project_prompt)"
   extra="$(latest_extra)"
   current_status="$(tail -n 30 "$STATUS_FILE" 2>/dev/null || true)"
+  graph_report="$(tail -n 120 "$GRAPH_REPORT_FILE" 2>/dev/null || true)"
   important_files="$(find . -maxdepth 5 \
     \( -path './.git' -o -path './node_modules' -o -path './.next' -o -path './dist' -o -path './build' -o -path './coverage' \) -prune \
     -o -type f \
@@ -23,6 +24,9 @@ $extra
 
 CURRENT STATUS:
 $current_status
+
+GRAPH REPORT:
+$graph_report
 
 IMPORTANT FILES:
 $important_files
@@ -44,12 +48,13 @@ EOF
 }
 
 write_executor_brief() {
-  local task review status errors changed
+  local task review status errors changed graph_report
   task="$(tail -n 80 "$TASK_FILE" 2>/dev/null || true)"
   review="$(tail -n 60 "$REVIEW_FILE" 2>/dev/null || true)"
   status="$(tail -n 40 "$STATUS_FILE" 2>/dev/null || true)"
   errors="$(grep -E 'failed|error|timeout|Error|FAIL|Test timeout|ECONN|ENOENT|EADDRINUSE|lightningcss' "$LOG_FILE" 2>/dev/null | tail -n 60 || true)"
   changed="$(git status --short 2>/dev/null | tail -n 60 || true)"
+  graph_report="$(tail -n 80 "$GRAPH_REPORT_FILE" 2>/dev/null || true)"
 
   cat > "$EXECUTOR_BRIEF_FILE" <<EOF
 CURRENT TASK:
@@ -61,6 +66,9 @@ $review
 CURRENT STATUS:
 $status
 
+GRAPH REPORT:
+$graph_report
+
 RECENT ERRORS:
 $errors
 
@@ -70,12 +78,13 @@ EOF
 }
 
 write_review_brief() {
-  local task review status changed errors
+  local task review status changed errors graph_report
   task="$(tail -n 80 "$TASK_FILE" 2>/dev/null || true)"
   review="$(tail -n 60 "$REVIEW_FILE" 2>/dev/null || true)"
   status="$(tail -n 40 "$STATUS_FILE" 2>/dev/null || true)"
   changed="$(git status --short 2>/dev/null | tail -n 60 || true)"
   errors="$(grep -E 'failed|error|timeout|Error|FAIL|Test timeout|ECONN|ENOENT|EADDRINUSE|lightningcss' "$LOG_FILE" 2>/dev/null | tail -n 60 || true)"
+  graph_report="$(tail -n 80 "$GRAPH_REPORT_FILE" 2>/dev/null || true)"
 
   cat > "$REVIEW_BRIEF_FILE" <<EOF
 CURRENT TASK:
@@ -87,6 +96,9 @@ $review
 CURRENT STATUS:
 $status
 
+GRAPH REPORT:
+$graph_report
+
 CURRENT CHANGES:
 $changed
 
@@ -96,12 +108,13 @@ EOF
 }
 
 write_escalation_brief() {
-  local task status blocker errors extra
+  local task status blocker errors extra graph_report
   task="$(tail -n 80 "$TASK_FILE" 2>/dev/null || true)"
   status="$(tail -n 40 "$STATUS_FILE" 2>/dev/null || true)"
   blocker="$(grep -E '^BLOCKER:' "$STATUS_FILE" 2>/dev/null | tail -n 1 || true)"
   errors="$(grep -E 'failed|error|timeout|Error|FAIL|Test timeout|ECONN|ENOENT|EADDRINUSE|lightningcss' "$LOG_FILE" 2>/dev/null | tail -n 80 || true)"
   extra="$(latest_extra)"
+  graph_report="$(tail -n 80 "$GRAPH_REPORT_FILE" 2>/dev/null || true)"
 
   cat > "$ESCALATION_BRIEF_FILE" <<EOF
 CURRENT BLOCKER:
@@ -112,6 +125,9 @@ $task
 
 CURRENT STATUS:
 $status
+
+GRAPH REPORT:
+$graph_report
 
 RECENT ERRORS:
 $errors

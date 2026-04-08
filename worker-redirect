@@ -28,6 +28,7 @@ worker_load_roles
 
 worker_stop_active_pid
 tmux kill-session -t "$SESSION" 2>/dev/null || true
+worker_refresh_graph_context "worker-redirect" | tee -a "$LOG_FILE" || true
 
 cat > "$REDIRECT_BRIEF_FILE" <<EOF
 OPERATOR REDIRECT:

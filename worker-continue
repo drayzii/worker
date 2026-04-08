@@ -55,6 +55,8 @@ worker_write_roles
   fi
 } > "$EXTRA_FILE"
 
+worker_refresh_graph_context "worker-continue" | tee -a "$LOG_FILE" || true
+
 rm -f "$ACTIVE_FILE"
 
 python3 - "$STATUS_FILE" "$PLAN_FILE" "$TASK_FILE" "$REVIEW_FILE" <<'PY'

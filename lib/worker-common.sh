@@ -69,6 +69,11 @@ worker_set_project_paths_from_base() {
   ESCALATION_BRIEF_FILE="$BASE/.worker/escalation-brief.md"
   REDIRECT_BRIEF_FILE="$BASE/.worker/redirect-brief.md"
   WORKER_RULES_FILE="$BASE/WORKER.md"
+  GRAPHIFY_DIR="$BASE/graphify-out"
+  GRAPH_REPORT_FILE="$GRAPHIFY_DIR/GRAPH_REPORT.md"
+  GRAPH_JSON_FILE="$GRAPHIFY_DIR/graph.json"
+  GRAPH_HTML_FILE="$GRAPHIFY_DIR/graph.html"
+  GRAPH_CACHE_DIR="$GRAPHIFY_DIR/cache"
   PROMPTS_DIR="$REPO_DIR/prompts"
   TEMPLATES_DIR="$REPO_DIR/templates"
   SYSTEM_PROMPT_FILE="$REPO_DIR/prompts/system-prompt.txt"
@@ -183,4 +188,26 @@ worker_stop_active_pid() {
     fi
     rm -f "$ACTIVE_FILE"
   fi
+}
+
+worker_refresh_graph_context() {
+  local reason="${1:-manual}"
+  local graphify_cmd="${WORKER_GRAPHIFY_CMD:-graphify}"
+  local graphify_bin="${graphify_cmd%% *}"
+
+  if [ ! -d "$BASE" ]; then
+    echo "graphify refresh skipped ($reason): project directory missing: $BASE" >&2
+    return 0
+  fi
+
+  if ! command -v "$graphify_bin" >/dev/null 2>&1; then
+    echo "graphify refresh skipped ($reason): command not found: $graphify_bin" >&2
+    return 0
+  fi
+
+  echo "Refreshing graph context ($reason) with: $graphify_cmd"
+  (
+    cd "$BASE" &&
+    /bin/sh -c "$graphify_cmd"
+  )
 }
