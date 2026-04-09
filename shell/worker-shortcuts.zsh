@@ -2,7 +2,7 @@ wn() {
   worker-new . "$@"
 }
 
-wc() {
+wcont() {
   worker-continue . "$@"
 }
 

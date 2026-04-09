@@ -40,14 +40,12 @@ source "$WORKER_HOME"/shell/worker-shortcuts.zsh
 Shortcuts:
 
 - `wn` -> `worker-new .`
-- `wc` -> `worker-continue .`
+- `wcont` -> `worker-continue .`
 - `wr` -> `worker-redirect .`
 - `ws` -> `worker-status .`
 - `wp` -> `worker-pause .`
 - `wk` -> `worker-kill .`
 - `wsb` -> `worker-stitch-bind .`
-
-Note: `wc` overrides the normal shell `wc` command in interactive sessions.
 
 ### Provider setup
 
