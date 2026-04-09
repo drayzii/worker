@@ -19,7 +19,6 @@ Requirements:
 
 Optional:
 
-- `graphify`
 - Stitch MCP configured in the provider environment
 - a local Ollama-style endpoint if you want `.worker/tools/local-llm`
 
@@ -59,45 +58,11 @@ Shortcuts:
 codex mcp list
 ```
 
-- If you use graphify with Codex:
-
-```zsh
-pip install graphifyy
-graphify install --platform codex
-graphify codex install
-```
-
-- Enable Codex multi-agent support for graphify in `~/.codex/config.toml`:
-
-```toml
-[features]
-multi_agent = true
-```
-
-- In Codex, graphify is typically invoked as:
-
-```text
-$graphify .
-```
-
 #### Claude
 
 - Install and authenticate `claude`.
 - Add Stitch MCP in Claude Code using the Stitch MCP setup flow for Claude Code.
 - Verify the Stitch server is available in your Claude Code MCP configuration before using `worker`.
-- If you use graphify with Claude Code:
-
-```zsh
-pip install graphifyy
-graphify install
-graphify claude install
-```
-
-- In Claude Code, graphify is typically invoked as:
-
-```text
-/graphify .
-```
 
 ## Quick Start
 
@@ -204,7 +169,6 @@ Project root:
 - `PLAN.md`
 - `TASK.md`
 - `REVIEW.md`
-- `graphify-out/` if `graphify` runs
 
 Runtime state:
 
@@ -250,29 +214,6 @@ Setup expectation:
 - Codex roles use the Codex MCP configuration
 - Claude roles use the Claude Code MCP configuration
 - bind the project locally with `worker-stitch-bind` after provider-side Stitch setup is working
-
-## Graphify
-
-If `graphify` is installed, the worker refreshes graph context at key points and injects `graphify-out/GRAPH_REPORT.md` into the role briefs.
-
-Provider notes:
-
-- Codex: `graphify install --platform codex` and `graphify codex install`
-- Claude Code: `graphify install` and `graphify claude install`
-- Codex uses `$graphify ...`
-- Claude Code uses `/graphify ...`
-
-Default command:
-
-```text
-graphify
-```
-
-Override if needed:
-
-```zsh
-export WORKER_GRAPHIFY_CMD='graphify . --update'
-```
 
 ## Repo Layout
 

@@ -95,8 +95,6 @@ PRD_FILE="$BASE/PRD.md"
   fi
 } > "$INITIAL_PROMPT_FILE"
 
-worker_refresh_graph_context "worker-new" | tee -a "$LOG_FILE" || true
-
 CMD="cd '$BASE' && '$RUNNER_BIN' '$BASE' new; echo; echo '[worker shell ready]'; exec zsh"
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
