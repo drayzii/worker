@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/worker-common.sh"
+
+usage() {
+  echo "usage: worker-prd <project-name|.|path> <codex|claude>" >&2
+  exit 2
+}
+
+[ $# -lt 2 ] && usage
+
+PROJECT_SELECTOR="$1"
+shift
+PROVIDER="$1"
+shift
+
+case "$PROVIDER" in
+  codex|claude) ;;
+  *) echo "Unknown provider: $PROVIDER" >&2; usage ;;
+esac
+
+worker_set_project_paths_from_selector "$PROJECT_SELECTOR"
+worker_require_project_dir
+worker_set_project_paths_from_base "$BASE"
+
+PRD_FILE="$BASE/PRD.md"
+PRD_PROMPT_FILE="$PROMPTS_DIR/prd-writer.txt"
+
+ask_optional() {
+  local var_name="$1"
+  local label="$2"
+  local answer
+  printf "%s\n> " "$label" >&2
+  IFS= read -r answer || true
+  printf -v "$var_name" '%s' "$answer"
+}
+
+write_prd_brief() {
+  local brief_file="$1"
+  {
+    cat "$PRD_PROMPT_FILE"
+    printf '\n\n'
+    printf 'PROJECT DIRECTORY: %s\n' "$BASE"
+    printf 'EXISTING PRD.md PRESENT: %s\n\n' "$([ -f "$PRD_FILE" ] && echo yes || echo no)"
+    printf 'INTERVIEW NOTES:\n'
+    printf 'PROJECT_NAME: %s\n' "${PROJECT_NAME:-}"
+    printf 'OVERVIEW: %s\n' "${OVERVIEW:-}"
+    printf 'GOALS: %s\n' "${GOALS:-}"
+    printf 'NON_GOALS: %s\n' "${NON_GOALS:-}"
+    printf 'USERS: %s\n' "${USERS:-}"
+    printf 'CORE_FLOWS: %s\n' "${CORE_FLOWS:-}"
+    printf 'FEATURES: %s\n' "${FEATURES:-}"
+    printf 'REQUIREMENTS: %s\n' "${REQUIREMENTS:-}"
+    printf 'DESIGN_UX_DIRECTION: %s\n' "${DESIGN_UX_DIRECTION:-}"
+    printf 'TECHNICAL_EXPECTATIONS: %s\n' "${TECHNICAL_EXPECTATIONS:-}"
+    printf 'ACCEPTANCE_CRITERIA: %s\n' "${ACCEPTANCE_CRITERIA:-}"
+    printf 'OPEN_QUESTIONS: %s\n' "${OPEN_QUESTIONS:-}"
+  } > "$brief_file"
+}
+
+normalize_markdown_output() {
+  local file="$1"
+  python3 - "$file" <<'PY'
+import pathlib, re, sys
+
+path = pathlib.Path(sys.argv[1])
+text = path.read_text() if path.exists() else ""
+text = text.strip()
+
+fenced = re.match(r"^```(?:md|markdown)?\n(.*)\n```$", text, flags=re.S)
+if fenced:
+    text = fenced.group(1).strip()
+
+if not text:
+    raise SystemExit("Generated PRD output was empty.")
+
+path.write_text(text.rstrip() + "\n")
+PY
+}
+
+generate_with_codex() {
+  local prompt_file="$1"
+  local output_file="$2"
+  codex exec \
+    -C "$BASE" \
+    --skip-git-repo-check \
+    --ephemeral \
+    --output-last-message "$output_file" \
+    - < "$prompt_file"
+}
+
+generate_with_claude() {
+  local prompt_file="$1"
+  local output_file="$2"
+  local prompt_text
+  prompt_text="$(cat "$prompt_file")"
+  claude -p \
+    --model sonnet \
+    --permission-mode bypassPermissions \
+    --max-turns 2 \
+    --append-system-prompt "$(cat "$SYSTEM_PROMPT_FILE")" \
+    "$prompt_text" > "$output_file"
+}
+
+echo "Generating PRD for: $BASE" >&2
+echo "Press Enter to skip any section." >&2
+echo >&2
+
+ask_optional PROJECT_NAME "Project / product name (optional)"
+ask_optional OVERVIEW "Overview: what is this product and who is it for? (optional)"
+ask_optional GOALS "Goals: what outcomes matter most? (optional)"
+ask_optional NON_GOALS "Non-goals: what is explicitly out of scope? (optional)"
+ask_optional USERS "Users: who are the primary users? (optional)"
+ask_optional CORE_FLOWS "Core flows: key user journeys or happy paths (optional)"
+ask_optional FEATURES "Features: main capabilities or modules (optional)"
+ask_optional REQUIREMENTS "Requirements: rules, constraints, or edge cases (optional)"
+ask_optional DESIGN_UX_DIRECTION "Design / UX direction: look, feel, or product references (optional)"
+ask_optional TECHNICAL_EXPECTATIONS "Technical expectations: stack, auth, infra, integrations (optional)"
+ask_optional ACCEPTANCE_CRITERIA "Acceptance criteria: what must be true for this to be done? (optional)"
+ask_optional OPEN_QUESTIONS "Open questions: unresolved decisions or assumptions (optional)"
+
+TMP_PROMPT="$(mktemp)"
+TMP_OUTPUT="$(mktemp)"
+trap 'rm -f "$TMP_PROMPT" "$TMP_OUTPUT"' EXIT
+
+write_prd_brief "$TMP_PROMPT"
+
+if [ "$PROVIDER" = "codex" ]; then
+  generate_with_codex "$TMP_PROMPT" "$TMP_OUTPUT"
+else
+  generate_with_claude "$TMP_PROMPT" "$TMP_OUTPUT"
+fi
+
+normalize_markdown_output "$TMP_OUTPUT"
+cp "$TMP_OUTPUT" "$PRD_FILE"
+
+echo "Wrote: $PRD_FILE"

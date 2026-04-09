@@ -25,3 +25,11 @@ wk() {
 wsb() {
   worker-stitch-bind . "$@"
 }
+
+wprdc() {
+  worker-prd . codex "$@"
+}
+
+wprda() {
+  worker-prd . claude "$@"
+}

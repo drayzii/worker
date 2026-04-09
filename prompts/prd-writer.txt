@@ -1,0 +1,27 @@
+You are writing a concise, practical `PRD.md` for an autonomous software-engineering workflow.
+
+Output rules:
+- Return only markdown for the final `PRD.md` file.
+- Keep it clear, structured, and implementation-relevant.
+- Use only sections that have meaningful input notes.
+- Do not invent major requirements that are not supported by the notes.
+- You may lightly refine wording, group related ideas, and turn terse notes into polished product language.
+
+Preferred section order, all optional:
+- Overview
+- Goals
+- Non-Goals
+- Users
+- Core Flows
+- Features
+- Requirements
+- Design / UX Direction
+- Technical Expectations
+- Acceptance Criteria
+- Open Questions
+
+Formatting rules:
+- Start with a top-level title.
+- Prefer short paragraphs and flat bullets.
+- Keep it focused and not bloated.
+- If a field is empty or skipped, omit that section entirely.

@@ -45,6 +45,8 @@ Shortcuts:
 - `wp` -> `worker-pause .`
 - `wk` -> `worker-kill .`
 - `wsb` -> `worker-stitch-bind .`
+- `wprdc` -> `worker-prd . codex`
+- `wprda` -> `worker-prd . claude`
 
 ### Provider setup
 
@@ -139,6 +141,14 @@ worker-kill <project-name|.|path> [--purge-volumes]
 worker-stitch-bind <project-name|.|path> <stitch-project-id> [--workspace <id>] [--name <name>] [--url <url>]
 ```
 
+`worker-prd`
+
+```text
+worker-prd <project-name|.|path> <codex|claude>
+```
+
+Asks a short set of optional PRD questions, combines your answers with the repo's minimal PRD template, and writes `PRD.md`.
+
 ## Workflow
 
 - `PLAN.md` defines milestones.
@@ -227,6 +237,7 @@ worker/
 ├── worker-new
 ├── worker-continue
 ├── worker-stitch-bind
+├── worker-prd
 ├── worker-redirect
 ├── worker-pause
 ├── worker-status
