@@ -146,7 +146,7 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
       post_turn_guard
       sanitize_controller_decision
       worker_stamp_artifacts
-      worker_refresh_graph_context "post-escalation-turn" | tee -a "$LOG_FILE" || true
+      worker_refresh_graph_context "post-review-turn" | tee -a "$LOG_FILE" || true
       AFTER_FP="$(state_fingerprint)"
       DECISION="$(controller_decision)"
 

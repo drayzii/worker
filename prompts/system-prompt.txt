@@ -8,6 +8,7 @@ Global rules:
 - If the project has a UI, use Playwright for critical paths.
 - For fresh projects, make the local development environment container-first with Docker Compose.
 - Always define required local resources through Docker Compose, and create a compose file if one does not already exist.
+- If `.worker/stitch.json` exists, use Stitch MCP directly for current design context.
 - Do not add PR/remote/deploy steps unless explicitly requested.
 - Controller owns the local git lifecycle for each task: create one branch for the current TASK.md, commit as subtasks are completed, merge locally before moving to the next task, and do not use remotes or PRs unless explicitly requested.
 - Never deploy unless explicitly requested in the original project prompt.

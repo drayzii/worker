@@ -69,6 +69,7 @@ worker_set_project_paths_from_base() {
   ESCALATION_BRIEF_FILE="$BASE/.worker/escalation-brief.md"
   REDIRECT_BRIEF_FILE="$BASE/.worker/redirect-brief.md"
   WORKER_RULES_FILE="$BASE/WORKER.md"
+  STITCH_BINDING_FILE="$BASE/.worker/stitch.json"
   GRAPHIFY_DIR="$BASE/graphify-out"
   GRAPH_REPORT_FILE="$GRAPHIFY_DIR/GRAPH_REPORT.md"
   GRAPH_JSON_FILE="$GRAPHIFY_DIR/graph.json"
@@ -79,6 +80,16 @@ worker_set_project_paths_from_base() {
   SYSTEM_PROMPT_FILE="$REPO_DIR/prompts/system-prompt.txt"
   RUNNER_BIN="$REPO_DIR/libexec/worker-runner.sh"
   LOCAL_LLM_BIN="$REPO_DIR/libexec/local-llm.sh"
+}
+
+read_prompt_file() {
+  local prompt_name="$1"
+  cat "$PROMPTS_DIR/$prompt_name"
+}
+
+read_template_file() {
+  local template_name="$1"
+  cat "$TEMPLATES_DIR/$template_name"
 }
 
 worker_require_project_dir() {
@@ -188,6 +199,91 @@ worker_stop_active_pid() {
     fi
     rm -f "$ACTIVE_FILE"
   fi
+}
+
+worker_stitch_is_bound() {
+  [ -f "$STITCH_BINDING_FILE" ]
+}
+
+worker_stitch_binding_field() {
+  local key="$1"
+  python3 - "$STITCH_BINDING_FILE" "$key" <<'PY'
+import json, pathlib, sys
+
+path = pathlib.Path(sys.argv[1])
+key = sys.argv[2]
+
+if not path.exists():
+    print("")
+    raise SystemExit(0)
+
+try:
+    data = json.loads(path.read_text())
+except Exception:
+    print("")
+    raise SystemExit(0)
+
+value = data.get(key, "")
+print("" if value is None else value)
+PY
+}
+
+worker_write_stitch_binding() {
+  local project_id="$1"
+  local workspace_id="$2"
+  local project_name="$3"
+  local project_url="$4"
+  local bound_at
+  bound_at="$(worker_utc_now)"
+
+  mkdir -p "$BASE/.worker" "$DESIGN_DIR"
+
+  python3 - "$STITCH_BINDING_FILE" "$project_id" "$workspace_id" "$project_name" "$project_url" "$bound_at" <<'PY'
+import json, pathlib, sys
+
+path = pathlib.Path(sys.argv[1])
+project_id, workspace_id, project_name, project_url, bound_at = sys.argv[2:7]
+
+payload = {
+    "version": 1,
+    "stitch_project_id": project_id,
+    "stitch_workspace_id": workspace_id or "",
+    "stitch_project_name": project_name or "",
+    "stitch_project_url": project_url or "",
+    "bound_at": bound_at,
+}
+
+path.write_text(json.dumps(payload, indent=2) + "\n")
+PY
+}
+
+worker_stitch_binding_summary() {
+  python3 - "$STITCH_BINDING_FILE" <<'PY'
+import json, pathlib, sys
+
+path = pathlib.Path(sys.argv[1])
+if not path.exists():
+    print("")
+    raise SystemExit(0)
+
+try:
+    data = json.loads(path.read_text())
+except Exception:
+    print("invalid stitch binding file")
+    raise SystemExit(0)
+
+fields = [
+    ("project_id", data.get("stitch_project_id", "")),
+    ("workspace_id", data.get("stitch_workspace_id", "")),
+    ("project_name", data.get("stitch_project_name", "")),
+    ("project_url", data.get("stitch_project_url", "")),
+    ("bound_at", data.get("bound_at", "")),
+]
+
+for key, value in fields:
+    if value:
+        print(f"{key}: {value}")
+PY
 }
 
 worker_refresh_graph_context() {

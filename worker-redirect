@@ -39,6 +39,7 @@ FILES TO CONSIDER:
 - TASK.md
 - REVIEW.md
 - .worker/status.md
+- .worker/stitch.json
 EOF
 
 PROMPT="$(make_redirect_prompt)"

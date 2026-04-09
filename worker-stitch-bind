@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/worker-common.sh"
+
+usage() {
+  echo "usage: worker-stitch-bind <project-name|.|path> <stitch-project-id> [--workspace <id>] [--name <name>] [--url <url>]" >&2
+  exit 2
+}
+
+[ $# -lt 2 ] && usage
+
+PROJECT_SELECTOR="$1"
+shift
+STITCH_PROJECT_ID="$1"
+shift
+
+STITCH_WORKSPACE_ID=""
+STITCH_PROJECT_NAME=""
+STITCH_PROJECT_URL=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --workspace) STITCH_WORKSPACE_ID="${2:-}"; shift 2 ;;
+    --name) STITCH_PROJECT_NAME="${2:-}"; shift 2 ;;
+    --url) STITCH_PROJECT_URL="${2:-}"; shift 2 ;;
+    -*) echo "Unknown option: $1" >&2; usage ;;
+    *) echo "Unexpected argument: $1" >&2; usage ;;
+  esac
+done
+
+worker_set_project_paths_from_selector "$PROJECT_SELECTOR"
+worker_require_project_dir
+worker_init_project_dirs
+
+worker_write_stitch_binding "$STITCH_PROJECT_ID" "$STITCH_WORKSPACE_ID" "$STITCH_PROJECT_NAME" "$STITCH_PROJECT_URL"
+
+echo "Stitch project bound."
+echo "project: $BASE"
+echo "binding: $STITCH_BINDING_FILE"
+echo "Use Stitch MCP directly from bound providers for live project context."

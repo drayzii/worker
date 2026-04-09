@@ -15,6 +15,7 @@ This repo is optimized for one stable host machine, not generic multi-machine po
 - Stores workflow state in the project itself
 - Uses Docker Compose as the default local-resource strategy for fresh projects
 - Supports `codex` and `claude` as interchangeable providers for each role
+- Supports optional Stitch project binding for live Stitch MCP usage
 - Refreshes `graphify` context at key points and injects `GRAPH_REPORT.md` into agent briefs
 
 ## Host assumptions
@@ -44,6 +45,7 @@ Minimum tools expected on the host:
 Optional but expected for the full workflow:
 
 - `graphify`
+- Stitch MCP configured in the provider environment on the worker host
 - whatever backing environment `graphify` needs for LLM-backed extraction
 - a local Ollama-style model endpoint if you want the generated `.worker/tools/local-llm` shim to work
 
@@ -81,6 +83,7 @@ The shortcuts file gives you:
 - `ws` → `worker-status .`
 - `wp` → `worker-pause .`
 - `wk` → `worker-kill .`
+- `wsb` → `worker-stitch-bind .`
 
 Note:
 
@@ -203,6 +206,16 @@ Usage:
 worker-kill <project-name|.|path> [--purge-volumes]
 ```
 
+### `worker-stitch-bind`
+
+Binds the local project to a Stitch project and creates the binding file used by providers for live Stitch MCP access.
+
+Usage:
+
+```text
+worker-stitch-bind <project-name|.|path> <stitch-project-id> [--workspace <id>] [--name <name>] [--url <url>]
+```
+
 ## Workflow artifacts written into the project
 
 Project root:
@@ -227,6 +240,7 @@ Project root:
 - `.worker/review-brief.md`
 - `.worker/escalation-brief.md`
 - `.worker/redirect-brief.md`
+- `.worker/stitch.json`
 - `.worker/tools/local-llm`
 - `.worker/logs/run.log`
 - `.worker/logs/current-run.ndjson`
@@ -361,6 +375,50 @@ That means:
 - because both of them read the same brief files
 - not because this repo installs graphify-specific assistant hooks
 
+## Stitch integration
+
+Current Stitch integration style:
+
+- binding-file based
+- project-local
+- live MCP-first
+
+Binding file:
+
+- `.worker/stitch.json`
+
+How it works:
+
+1. Bind the local project to a Stitch project with `worker-stitch-bind`.
+2. The binding is written to `.worker/stitch.json`.
+3. During `controller_plan` and `controller_review`, the provider is instructed to call Stitch MCP directly using the bound project identity from the brief.
+4. During execution, the provider is instructed to fetch exact screens, assets, and specs on demand through Stitch MCP.
+5. The briefs inject Stitch binding metadata and explicit notes about using live Stitch MCP.
+
+### Stitch in the live loop
+
+This repo does not shell out to Stitch as part of the main loop.
+
+Instead:
+
+- `.worker/stitch.json` provides project identity
+- the prompts tell the provider to use Stitch MCP directly
+- the briefs surface the binding fields needed to query the correct Stitch project
+
+That means the provider environment on the worker host must already have Stitch MCP configured.
+
+### Stitch and provider behavior
+
+Stitch in this repo is provider-agnostic.
+
+The worker does not assume Codex-specific or Claude-specific Stitch behavior beyond MCP availability in the provider environment.
+Instead:
+
+- a binding file identifies the Stitch project
+- the briefs include that identity
+- whichever provider is active is instructed to use Stitch MCP live
+- no Stitch sync wrapper is required for normal operation
+
 ## Local model shim
 
 `worker-new` creates `.worker/tools/local-llm`, which points to this repo’s internal:
@@ -406,6 +464,13 @@ Resume:
 ```zsh
 cd my-app
 worker-continue .
+```
+
+Bind Stitch:
+
+```zsh
+cd my-app
+worker-stitch-bind . stitch-project-123 --name "My App"
 ```
 
 Redirect:
@@ -455,6 +520,7 @@ worker/
 ├── shell/                convenience shell wrappers
 ├── worker-new
 ├── worker-continue
+├── worker-stitch-bind
 ├── worker-redirect
 ├── worker-pause
 ├── worker-status

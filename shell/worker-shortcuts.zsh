@@ -21,3 +21,7 @@ wp() {
 wk() {
   worker-kill . "$@"
 }
+
+wsb() {
+  worker-stitch-bind . "$@"
+}
