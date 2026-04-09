@@ -45,8 +45,7 @@ Shortcuts:
 - `wp` -> `worker-pause .`
 - `wk` -> `worker-kill .`
 - `wsb` -> `worker-stitch-bind .`
-- `wprdc` -> `worker-prd . codex`
-- `wprda` -> `worker-prd . claude`
+- `wprd` -> `worker-prd . ...`
 
 ### Provider setup
 
