@@ -1,35 +1,12 @@
 # worker
 
-`worker` is a local autonomous software-engineering loop designed for a dedicated always-on Mac.
+`worker` is a local autonomous engineering loop for a dedicated always-on Mac.
 
-It initializes a project, runs a controller/executor/escalation workflow inside `tmux`, persists project state in plain files, and lets you resume, redirect, inspect, pause, or kill work from the terminal.
+It runs a `controller -> executor -> review -> escalation` workflow in `tmux`, keeps state in project files, and is designed for existing project folders rather than creating repos for you.
 
-This repo is optimized for one stable host machine, not generic multi-machine portability.
+## Setup
 
-## What it does
-
-- Uses a role-based loop:
-  - `controller` plans and reviews
-  - `executor` implements the current task
-  - `escalation` handles blockers
-- Stores workflow state in the project itself
-- Uses Docker Compose as the default local-resource strategy for fresh projects
-- Supports `codex` and `claude` as interchangeable providers for each role
-- Supports optional Stitch project binding for live Stitch MCP usage
-- Refreshes `graphify` context at key points and injects `GRAPH_REPORT.md` into agent briefs
-
-## Host assumptions
-
-This setup assumes:
-
-- it is usually plugged in
-- `tmux` sessions can run for long periods
-- local auth state for Codex and Claude persists on that machine
-- projects can be resumed later without reconstructing context from scratch
-
-## Required tools
-
-Minimum tools expected on the host:
+Requirements:
 
 - `bash`
 - `zsh`
@@ -37,110 +14,121 @@ Minimum tools expected on the host:
 - `git`
 - `tmux`
 - `docker` and `docker compose`
-- `jq`
-- `curl`
 - `codex`
 - `claude`
 
-Optional but expected for the full workflow:
+Optional:
 
 - `graphify`
-- Stitch MCP configured in the provider environment on the worker host
-- whatever backing environment `graphify` needs for LLM-backed extraction
-- a local Ollama-style model endpoint if you want the generated `.worker/tools/local-llm` shim to work
+- Stitch MCP configured in the provider environment
+- a local Ollama-style endpoint if you want `.worker/tools/local-llm`
 
-## Auth
+Auth:
 
-Both providers are used as local CLIs.
+- `codex` must already be installed and logged in
+- `claude` must already be installed and logged in
 
-- `codex` is invoked with `codex exec --json ...`
-- `claude` is invoked with `claude -p ...`
-
-For this setup to work reliably on the host machine:
-
-- `codex` must already be installed and authenticated
-- `claude` must already be installed and authenticated
-- that auth state must survive normal reboots and unattended runs
-
-If either provider is not authenticated, the worker loop writes a blocker into `.worker/status.md` and stops.
-
-## Install
-
-Make the public commands available on `PATH`.
-
-Example:
+Shell setup:
 
 ```zsh
-export PATH="/Users/drayzii/apps/worker:$PATH"
-source /Users/drayzii/apps/worker/shell/worker-shortcuts.zsh
+export WORKER_HOME="/path/to/worker"
+chmod +x "$WORKER_HOME"/worker-* "$WORKER_HOME"/libexec/*.sh "$WORKER_HOME"/shell/*.zsh
+export PATH="$WORKER_HOME:$PATH"
+source "$WORKER_HOME"/shell/worker-shortcuts.zsh
 ```
 
-The shortcuts file gives you:
+Shortcuts:
 
-- `wn` → `worker-new .`
-- `wc` → `worker-continue .`
-- `wr` → `worker-redirect .`
-- `ws` → `worker-status .`
-- `wp` → `worker-pause .`
-- `wk` → `worker-kill .`
-- `wsb` → `worker-stitch-bind .`
+- `wn` -> `worker-new .`
+- `wc` -> `worker-continue .`
+- `wr` -> `worker-redirect .`
+- `ws` -> `worker-status .`
+- `wp` -> `worker-pause .`
+- `wk` -> `worker-kill .`
+- `wsb` -> `worker-stitch-bind .`
 
-Note:
+Note: `wc` overrides the normal shell `wc` command in interactive sessions.
 
-- `wc` overrides the normal shell `wc` command in interactive sessions if you source the shortcuts file.
+### Provider setup
 
-## Project model
+#### Codex
 
-This repo no longer creates project folders for you.
-
-You create the project directory yourself, then initialize inside it.
-
-Typical flow:
-
-1. Create a repo or folder.
-2. Add `PRD.md` if you have one.
-3. `cd` into the project.
-4. Run `worker-new .`
-5. Resume with `worker-continue .`
-
-Project selection rules:
-
-- `.` means the current directory
-- an explicit path works
-- a bare name still resolves to `~/Projects/<name>` for backward compatibility
-
-## Required project inputs
-
-`worker-new` requires one of:
-
-- a trailing prompt
-- `PRD.md` in the project root
-
-If both exist, both are written into `.worker/initial-prompt.txt`.
-
-Examples:
+- Install and authenticate `codex`.
+- Add the Stitch MCP server to Codex using your Stitch MCP registration details.
+- Verify MCP servers with:
 
 ```zsh
-cd /path/to/project
+codex mcp list
+```
+
+- If you use graphify with Codex:
+
+```zsh
+pip install graphifyy
+graphify install --platform codex
+graphify codex install
+```
+
+- Enable Codex multi-agent support for graphify in `~/.codex/config.toml`:
+
+```toml
+[features]
+multi_agent = true
+```
+
+- In Codex, graphify is typically invoked as:
+
+```text
+$graphify .
+```
+
+#### Claude
+
+- Install and authenticate `claude`.
+- Add Stitch MCP in Claude Code using the Stitch MCP setup flow for Claude Code.
+- Verify the Stitch server is available in your Claude Code MCP configuration before using `worker`.
+- If you use graphify with Claude Code:
+
+```zsh
+pip install graphifyy
+graphify install
+graphify claude install
+```
+
+- In Claude Code, graphify is typically invoked as:
+
+```text
+/graphify .
+```
+
+## Quick Start
+
+```zsh
+mkdir my-app
+cd my-app
+git init
+echo "# Product Requirements" > PRD.md
 worker-new .
 ```
 
-```zsh
-cd /path/to/project
-worker-new . "Build a multi-tenant admin dashboard"
-```
+Resume later:
 
 ```zsh
-worker-new my-project "Build a notes app"
+worker-continue .
 ```
 
-## Public commands
+## Project Model
 
-### `worker-new`
+- You create the project directory yourself.
+- `worker-new` initializes inside an existing folder.
+- It requires either a prompt or `PRD.md`.
+- `.` means current directory.
+- A full or relative path also works.
+- A bare name still resolves to `~/Projects/<name>` for backward compatibility.
 
-Initializes an existing project directory and starts the worker runner in `tmux`.
+## Commands
 
-Usage:
+`worker-new`
 
 ```text
 worker-new <project-name|.|path> [--controller codex|claude] [--executor codex|claude] [--escalation codex|claude] [project prompt...]
@@ -152,82 +140,75 @@ Defaults:
 - executor: `codex`
 - escalation: `claude`
 
-### `worker-continue`
-
-Resumes a project from the current repo state and the persisted worker artifacts.
-
-Usage:
+`worker-continue`
 
 ```text
 worker-continue <project-name|.|path> [--controller codex|claude] [--executor codex|claude] [--escalation codex|claude] [extra instructions...]
 ```
 
-### `worker-redirect`
-
-Stops the active session, asks the controller to rewrite workflow artifacts only, and leaves the project ready to resume.
-
-Usage:
+`worker-redirect`
 
 ```text
 worker-redirect <project-name|.|path> <redirect instructions...>
 ```
 
-### `worker-status`
-
-Prints:
-
-- `TASK.md`
-- `REVIEW.md`
-- `.worker/status.md`
-
-Usage:
+`worker-status`
 
 ```text
 worker-status <project-name|.|path>
 ```
 
-### `worker-pause`
-
-Stops the active runner process and `tmux` session without removing project artifacts.
-
-Usage:
+`worker-pause`
 
 ```text
 worker-pause <project-name|.|path>
 ```
 
-### `worker-kill`
-
-Kills the `tmux` session and, if compose files are present, also stops Docker Compose services.
-
-Usage:
+`worker-kill`
 
 ```text
 worker-kill <project-name|.|path> [--purge-volumes]
 ```
 
-### `worker-stitch-bind`
-
-Binds the local project to a Stitch project and creates the binding file used by providers for live Stitch MCP access.
-
-Usage:
+`worker-stitch-bind`
 
 ```text
 worker-stitch-bind <project-name|.|path> <stitch-project-id> [--workspace <id>] [--name <name>] [--url <url>]
 ```
 
-## Workflow artifacts written into the project
+## Workflow
+
+- `PLAN.md` defines milestones.
+- `TASK.md` holds one current task.
+- Subtasks live inside `SCOPE`, `ACCEPTANCE`, and `VALIDATION`.
+- The controller owns planning, review, task transitions, and the local git lifecycle.
+- The executor implements the current task.
+- Escalation handles blockers only.
+
+Git policy:
+
+- one local branch per `TASK.md`
+- commit as subtasks complete
+- merge locally before the next task
+- no remotes, PRs, or deploy steps unless explicitly requested
+
+Infra policy:
+
+- fresh projects are container-first
+- required local resources should be defined with Docker Compose
+
+## Files
 
 Project root:
 
-- `PRD.md` optional input
+- `PRD.md`
 - `WORKER.md`
 - `PLAN.md`
 - `TASK.md`
 - `REVIEW.md`
-- `graphify-out/` if `graphify` runs successfully
+- `graphify-out/` if `graphify` runs
 
-`.worker/`:
+Runtime state:
 
 - `.worker/status.md`
 - `.worker/roles.env`
@@ -241,283 +222,69 @@ Project root:
 - `.worker/escalation-brief.md`
 - `.worker/redirect-brief.md`
 - `.worker/stitch.json`
-- `.worker/tools/local-llm`
 - `.worker/logs/run.log`
 - `.worker/logs/current-run.ndjson`
 
-## Current workflow model
-
-The workflow is milestone-centric.
-
-- `PLAN.md` defines milestones
-- `TASK.md` contains the single current task
-- subtasks live inside `SCOPE`, `ACCEPTANCE`, and `VALIDATION`
-- the controller owns task transitions
-
-High-level loop:
-
-1. `controller_plan`
-2. `executor`
-3. `controller_review`
-4. repeat execution/review until complete
-5. `escalation` only when routed explicitly or after repeated executor failure
-
-The controller writes the initial `TASK.md` during planning.
-After that, `controller_review` normally writes the next or revised `TASK.md`.
-
-## Git lifecycle rules
-
-The intended model is:
-
-- one branch per current `TASK.md`
-- commits as subtasks are completed
-- local merge before moving to the next task
-- no PRs, no remotes, no deploy steps unless explicitly requested
-
-This policy is encoded in:
-
-- `prompts/system-prompt.txt`
-- `templates/WORKER.md`
-- `prompts/controller-review.txt`
-
-## Docker Compose rules
-
-For fresh projects, the workflow is container-first.
-
-That means:
-
-- required local resources should be defined through Docker Compose
-- if compose files do not exist yet, the workflow should create them
-- `worker-kill` will stop Compose services if it finds:
-  - `docker-compose.yml`
-  - `docker-compose.yaml`
-  - `compose.yml`
-  - `compose.yaml`
-
-## Prompts and templates
-
-Repo-owned prompts live in:
-
-- `prompts/system-prompt.txt`
-- `prompts/controller-plan.txt`
-- `prompts/executor.txt`
-- `prompts/controller-review.txt`
-- `prompts/escalation.txt`
-- `prompts/redirect.txt`
-
-Repo-owned templates live in:
-
-- `templates/WORKER.md`
-- `templates/status.md`
-- `templates/continue-extra.txt`
-
-These are the source of truth for workflow behavior. The scripts load them at runtime.
-
-## Graphify integration
-
-Current integration style:
-
-- file-based
-- provider-agnostic
-- no MCP integration in this repo yet
-
-What happens:
-
-- `worker-new` refreshes graph context
-- `worker-continue` refreshes graph context
-- `worker-redirect` refreshes graph context
-- `worker-runner` refreshes graph context after executor turns
-- `worker-runner` refreshes graph context after escalation turns
-
-The worker expects graphify output in:
-
-- `graphify-out/GRAPH_REPORT.md`
-- `graphify-out/graph.json`
-- `graphify-out/graph.html`
-- `graphify-out/cache/`
-
-The briefs inject `GRAPH_REPORT.md` into:
-
-- controller brief
-- executor brief
-- review brief
-- escalation brief
-
-So agents use graphify indirectly through the generated brief files.
-
-### Graphify command
-
-By default the worker runs:
-
-```text
-graphify
-```
-
-from the project root.
-
-You can override that with:
-
-```zsh
-export WORKER_GRAPHIFY_CMD='graphify . --update'
-```
-
-If `graphify` is not installed or not on `PATH`, the worker logs a skip and continues.
-
-### Important note about graphify provider access
-
-This repo does not talk to graphify through MCP or a provider-specific hook.
-
-It simply shells out to the `graphify` CLI and consumes the generated files afterward.
-
-That means:
-
-- Codex and Claude both benefit from graphify in this project
-- because both of them read the same brief files
-- not because this repo installs graphify-specific assistant hooks
-
-## Stitch integration
-
-Current Stitch integration style:
-
-- binding-file based
-- project-local
-- live MCP-first
+## Stitch
 
 Binding file:
 
 - `.worker/stitch.json`
 
-How it works:
-
-1. Bind the local project to a Stitch project with `worker-stitch-bind`.
-2. The binding is written to `.worker/stitch.json`.
-3. During `controller_plan` and `controller_review`, the provider is instructed to call Stitch MCP directly using the bound project identity from the brief.
-4. During execution, the provider is instructed to fetch exact screens, assets, and specs on demand through Stitch MCP.
-5. The briefs inject Stitch binding metadata and explicit notes about using live Stitch MCP.
-
-### Stitch in the live loop
-
-This repo does not shell out to Stitch as part of the main loop.
-
-Instead:
-
-- `.worker/stitch.json` provides project identity
-- the prompts tell the provider to use Stitch MCP directly
-- the briefs surface the binding fields needed to query the correct Stitch project
-
-That means the provider environment on the worker host must already have Stitch MCP configured.
-
-### Stitch and provider behavior
-
-Stitch in this repo is provider-agnostic.
-
-The worker does not assume Codex-specific or Claude-specific Stitch behavior beyond MCP availability in the provider environment.
-Instead:
-
-- a binding file identifies the Stitch project
-- the briefs include that identity
-- whichever provider is active is instructed to use Stitch MCP live
-- no Stitch sync wrapper is required for normal operation
-
-## Local model shim
-
-`worker-new` creates `.worker/tools/local-llm`, which points to this repo’s internal:
-
-- `libexec/local-llm.sh`
-
-That script expects a local HTTP model endpoint at:
-
-```text
-http://127.0.0.1:11434/api/generate
-```
-
-The prompts explicitly forbid local models from owning planning, review, debugging strategy, or test-loop control. They are only intended for tiny safe helper tasks.
-
-## Logs and state
-
-Durable per-project runtime state lives in the project itself.
-
-Most important files:
-
-- `.worker/logs/run.log`
-- `.worker/logs/current-run.ndjson`
-- `.worker/status.md`
-- `.worker/runtime.env`
-- `.worker/roles.env`
-
-For a remote inspection workflow, these are the first files to check.
-
-## Example daily usage
-
-Fresh project:
+Usage:
 
 ```zsh
-mkdir my-app
-cd my-app
-git init
-echo "# Product Requirements" > PRD.md
-worker-new .
-```
-
-Resume:
-
-```zsh
-cd my-app
-worker-continue .
-```
-
-Bind Stitch:
-
-```zsh
-cd my-app
 worker-stitch-bind . stitch-project-123 --name "My App"
 ```
 
-Redirect:
+Behavior:
 
-```zsh
-cd my-app
-worker-redirect . "Stop polishing UI and finish auth first"
+- the binding file stores project identity
+- the providers are instructed to use Stitch MCP directly
+- controller uses it during planning and review when bound
+- executor uses it on demand for exact screens, assets, and specs
+
+This repo does not shell out to Stitch directly. Stitch is used through the provider environment.
+
+Setup expectation:
+
+- Stitch MCP must be installed in the same provider runtime that `worker` uses
+- Codex roles use the Codex MCP configuration
+- Claude roles use the Claude Code MCP configuration
+- bind the project locally with `worker-stitch-bind` after provider-side Stitch setup is working
+
+## Graphify
+
+If `graphify` is installed, the worker refreshes graph context at key points and injects `graphify-out/GRAPH_REPORT.md` into the role briefs.
+
+Provider notes:
+
+- Codex: `graphify install --platform codex` and `graphify codex install`
+- Claude Code: `graphify install` and `graphify claude install`
+- Codex uses `$graphify ...`
+- Claude Code uses `/graphify ...`
+
+Default command:
+
+```text
+graphify
 ```
 
-Inspect:
+Override if needed:
 
 ```zsh
-cd my-app
-worker-status .
+export WORKER_GRAPHIFY_CMD='graphify . --update'
 ```
 
-Pause:
-
-```zsh
-cd my-app
-worker-pause .
-```
-
-Kill:
-
-```zsh
-cd my-app
-worker-kill . --purge-volumes
-```
-
-## Known current behaviors
-
-- The worker loop is built around `tmux`.
-- Provider failures become blockers in `.worker/status.md`.
-- A project can be resumed with different role-provider assignments.
-- The repo currently exposes only the public commands listed above.
-- Internal implementation scripts live under `lib/` and `libexec/`.
-
-## Repo layout
+## Repo Layout
 
 ```text
 worker/
-├── lib/                  shared shell helpers
-├── libexec/              internal executables
-├── prompts/              workflow prompts
-├── templates/            generated file templates
-├── shell/                convenience shell wrappers
+├── lib/
+├── libexec/
+├── prompts/
+├── templates/
+├── shell/
 ├── worker-new
 ├── worker-continue
 ├── worker-stitch-bind
