@@ -19,6 +19,6 @@ Your job:
 - Do not arbitrarily reset or change PHASE, CURRENT_MILESTONE, CONTROLLER_DECISION, NEXT_ACTION, or ROUTE_TO_ESCALATION unless the redirect logically requires those fields to change.
 - Do not implement product code.
 - Do not ask for confirmation.
-- If Stitch is bound and the redirect depends on current UI context, use Stitch MCP directly using the project identity in the brief.
+- If Stitch is bound and the redirect depends on current UI context, use Stitch MCP directly using `.worker/stitch.json` and the project identity in the brief.
 - Do not use shell patching. Use direct file writes or Python rewrites only.
 - Do not add PR/remote/deploy steps unless explicitly requested.

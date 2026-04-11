@@ -14,7 +14,7 @@ Rules:
 - Do not ask for confirmation.
 - Do not rewrite the whole project plan.
 - Do not use local models for orchestration or review.
-- If Stitch is bound and the task touches UI, fetch exact screens, assets, and specs on demand via Stitch MCP using the project identity in the brief.
+- If Stitch is bound and the task touches UI, fetch exact linked screens, assets, and specs on demand via Stitch MCP using `.worker/stitch.json` and the project identity in the brief.
 - For fresh projects, use Docker Compose for required local resources and create the compose file before depending on those resources.
 - Make real edits and run real commands.
 - Update .worker/status.md with concrete progress.
