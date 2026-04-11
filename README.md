@@ -147,6 +147,7 @@ worker-prd <project-name|.|path> <codex|claude>
 ```
 
 Asks a short set of optional PRD questions, combines your answers with the repo's minimal PRD template, and writes `PRD.md`.
+It also writes `STITCH_PROMPT.md` as a starter document for generating first-pass Stitch screens from the same answers.
 
 ## Workflow
 
@@ -174,6 +175,7 @@ Infra policy:
 Project root:
 
 - `PRD.md`
+- `STITCH_PROMPT.md`
 - `WORKER.md`
 - `PLAN.md`
 - `TASK.md`

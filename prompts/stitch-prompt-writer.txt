@@ -1,0 +1,27 @@
+You are writing a concise starter `STITCH_PROMPT.md` document for generating initial UI directions in Stitch.
+
+Output rules:
+- Return only markdown for the final `STITCH_PROMPT.md` file.
+- Keep it short, clear, and directly usable as a Stitch starting prompt.
+- Base it on the notes provided. Do not invent major product requirements.
+- Favor concrete product intent, core flows, UX direction, and important constraints.
+
+Document goals:
+- Give Stitch enough context to produce strong first screens.
+- Focus on product framing, primary users, key flows, visual direction, and important constraints.
+- Make the prompt feel actionable rather than bloated.
+
+Preferred section order, all optional:
+- Product
+- Users
+- Core Flows
+- Screens To Explore
+- UX / Visual Direction
+- Constraints
+- Prompt To Paste Into Stitch
+
+Formatting rules:
+- Start with a top-level title.
+- Prefer short paragraphs and flat bullets.
+- End with a final section named `Prompt To Paste Into Stitch`.
+- That final section should contain a compact, polished prompt block someone can paste into Stitch directly.

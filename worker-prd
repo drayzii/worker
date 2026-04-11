@@ -27,7 +27,9 @@ worker_require_project_dir
 worker_set_project_paths_from_base "$BASE"
 
 PRD_FILE="$BASE/PRD.md"
-PRD_PROMPT_FILE="$PROMPTS_DIR/prd-writer.txt"
+STITCH_PROMPT_FILE="$BASE/STITCH_PROMPT.md"
+PRD_PROMPT_TEMPLATE="$PROMPTS_DIR/prd-writer.txt"
+STITCH_PROMPT_TEMPLATE="$PROMPTS_DIR/stitch-prompt-writer.txt"
 
 ask_optional() {
   local var_name="$1"
@@ -38,13 +40,17 @@ ask_optional() {
   printf -v "$var_name" '%s' "$answer"
 }
 
-write_prd_brief() {
-  local brief_file="$1"
+write_doc_brief() {
+  local template_file="$1"
+  local output_file="$2"
+  local doc_label="$3"
   {
-    cat "$PRD_PROMPT_FILE"
+    cat "$template_file"
     printf '\n\n'
     printf 'PROJECT DIRECTORY: %s\n' "$BASE"
-    printf 'EXISTING PRD.md PRESENT: %s\n\n' "$([ -f "$PRD_FILE" ] && echo yes || echo no)"
+    printf 'TARGET FILE: %s\n' "$output_file"
+    printf 'DOCUMENT TYPE: %s\n' "$doc_label"
+    printf 'EXISTING FILE PRESENT: %s\n\n' "$([ -f "$output_file" ] && echo yes || echo no)"
     printf 'INTERVIEW NOTES:\n'
     printf 'PROJECT_NAME: %s\n' "${PROJECT_NAME:-}"
     printf 'OVERVIEW: %s\n' "${OVERVIEW:-}"
@@ -58,7 +64,7 @@ write_prd_brief() {
     printf 'TECHNICAL_EXPECTATIONS: %s\n' "${TECHNICAL_EXPECTATIONS:-}"
     printf 'ACCEPTANCE_CRITERIA: %s\n' "${ACCEPTANCE_CRITERIA:-}"
     printf 'OPEN_QUESTIONS: %s\n' "${OPEN_QUESTIONS:-}"
-  } > "$brief_file"
+  } > "$output_file"
 }
 
 normalize_markdown_output() {
@@ -124,17 +130,25 @@ ask_optional OPEN_QUESTIONS "Open questions: unresolved decisions or assumptions
 
 TMP_PROMPT="$(mktemp)"
 TMP_OUTPUT="$(mktemp)"
-trap 'rm -f "$TMP_PROMPT" "$TMP_OUTPUT"' EXIT
+TMP_STITCH_PROMPT="$(mktemp)"
+TMP_STITCH_OUTPUT="$(mktemp)"
+trap 'rm -f "$TMP_PROMPT" "$TMP_OUTPUT" "$TMP_STITCH_PROMPT" "$TMP_STITCH_OUTPUT"' EXIT
 
-write_prd_brief "$TMP_PROMPT"
+write_doc_brief "$PRD_PROMPT_TEMPLATE" "$TMP_PROMPT" "PRD"
+write_doc_brief "$STITCH_PROMPT_TEMPLATE" "$TMP_STITCH_PROMPT" "STITCH_PROMPT"
 
 if [ "$PROVIDER" = "codex" ]; then
   generate_with_codex "$TMP_PROMPT" "$TMP_OUTPUT"
+  generate_with_codex "$TMP_STITCH_PROMPT" "$TMP_STITCH_OUTPUT"
 else
   generate_with_claude "$TMP_PROMPT" "$TMP_OUTPUT"
+  generate_with_claude "$TMP_STITCH_PROMPT" "$TMP_STITCH_OUTPUT"
 fi
 
 normalize_markdown_output "$TMP_OUTPUT"
+normalize_markdown_output "$TMP_STITCH_OUTPUT"
 cp "$TMP_OUTPUT" "$PRD_FILE"
+cp "$TMP_STITCH_OUTPUT" "$STITCH_PROMPT_FILE"
 
 echo "Wrote: $PRD_FILE"
+echo "Wrote: $STITCH_PROMPT_FILE"
