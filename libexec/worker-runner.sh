@@ -88,6 +88,7 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
     executor)
       normalize_status_for_stage executor
       sanitize_controller_decision
+      increment_task_iterations
       worker_stamp_artifacts
       write_executor_brief
       BEFORE_FP="$(state_fingerprint)"
@@ -125,6 +126,7 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
     controller_review)
       normalize_status_for_stage controller_review
       sanitize_controller_decision
+      increment_task_iterations
       worker_stamp_artifacts
       write_review_brief
       BEFORE_DECISION="$(controller_decision)"
@@ -175,6 +177,7 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
     escalation)
       normalize_status_for_stage escalation
       sanitize_controller_decision
+      increment_task_iterations
       worker_stamp_artifacts
       write_escalation_brief
       BEFORE_FP="$(state_fingerprint)"

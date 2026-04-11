@@ -18,6 +18,7 @@ ensure_status_skeleton() {
   if ! grep -q '^STATUS:' "$STATUS_FILE" 2>/dev/null; then
     read_template_file status.md > "$STATUS_FILE"
   fi
+  ensure_task_tracking_fields
 }
 
 status_complete() {
@@ -51,6 +52,17 @@ print(m.group(1).strip() if m else "")
 PY
 }
 
+status_field() {
+  local key="$1"
+  python3 - "$STATUS_FILE" "$key" <<'PY'
+import pathlib, re, sys
+p = pathlib.Path(sys.argv[1]); key = sys.argv[2]
+text = p.read_text() if p.exists() else ""
+m = re.search(rf'^{re.escape(key)}:\s*(.*)$', text, flags=re.M)
+print(m.group(1).strip() if m else "")
+PY
+}
+
 set_status_field() {
   local key="$1"
   local value="$2"
@@ -66,6 +78,63 @@ else:
     text = text.rstrip() + ('\n' if text and not text.endswith('\n') else '') + rep + '\n'
 p.write_text(text)
 PY
+}
+
+ensure_task_tracking_fields() {
+  if ! grep -q '^TASK_FINGERPRINT:' "$STATUS_FILE" 2>/dev/null; then
+    set_status_field TASK_FINGERPRINT ""
+  fi
+  if ! grep -q '^TASK_ITERATIONS:' "$STATUS_FILE" 2>/dev/null; then
+    set_status_field TASK_ITERATIONS "0"
+  fi
+  if ! grep -q '^TASK_STARTED_AT:' "$STATUS_FILE" 2>/dev/null; then
+    set_status_field TASK_STARTED_AT ""
+  fi
+}
+
+task_fingerprint() {
+  if [ ! -s "$TASK_FILE" ]; then
+    printf '\n'
+    return 0
+  fi
+  worker_fingerprint_files "$TASK_FILE"
+}
+
+sync_task_tracking() {
+  local current_fp stored_fp
+  current_fp="$(task_fingerprint)"
+  stored_fp="$(status_field TASK_FINGERPRINT)"
+
+  if [ -z "$current_fp" ]; then
+    set_status_field TASK_FINGERPRINT ""
+    set_status_field TASK_ITERATIONS "0"
+    set_status_field TASK_STARTED_AT ""
+    return 0
+  fi
+
+  if [ "$stored_fp" != "$current_fp" ]; then
+    set_status_field TASK_FINGERPRINT "$current_fp"
+    set_status_field TASK_ITERATIONS "0"
+    set_status_field TASK_STARTED_AT "$(worker_utc_now)"
+  fi
+}
+
+increment_task_iterations() {
+  local current_fp current_iterations
+  ensure_task_tracking_fields
+  sync_task_tracking
+  current_fp="$(status_field TASK_FINGERPRINT)"
+
+  if [ -z "$current_fp" ]; then
+    return 0
+  fi
+
+  current_iterations="$(status_field TASK_ITERATIONS)"
+  case "$current_iterations" in
+    ''|*[!0-9]*) current_iterations=0 ;;
+  esac
+  current_iterations=$((current_iterations + 1))
+  set_status_field TASK_ITERATIONS "$current_iterations"
 }
 
 normalize_status_for_stage() {
@@ -136,9 +205,17 @@ plan_artifacts_ready() {
 
 set_controller_blocker() {
   local msg="$1"
+  local task_fp task_iterations task_started_at
+  task_fp="$(status_field TASK_FINGERPRINT)"
+  task_iterations="$(status_field TASK_ITERATIONS)"
+  task_started_at="$(status_field TASK_STARTED_AT)"
+  [ -n "$task_iterations" ] || task_iterations="0"
   cat > "$STATUS_FILE" <<EOF
 PHASE: Controller blocked
 CURRENT_MILESTONE: $(task_field MILESTONE)
+TASK_FINGERPRINT: $task_fp
+TASK_ITERATIONS: $task_iterations
+TASK_STARTED_AT: $task_started_at
 LAST_ACTION: controller planning/review failed
 NEXT_ACTION: fix controller or override provider, then continue
 CONTROLLER_DECISION: REVISE
@@ -151,9 +228,17 @@ EOF
 
 set_escalation_blocker() {
   local msg="$1"
+  local task_fp task_iterations task_started_at
+  task_fp="$(status_field TASK_FINGERPRINT)"
+  task_iterations="$(status_field TASK_ITERATIONS)"
+  task_started_at="$(status_field TASK_STARTED_AT)"
+  [ -n "$task_iterations" ] || task_iterations="0"
   cat > "$STATUS_FILE" <<EOF
 PHASE: Escalation blocked
 CURRENT_MILESTONE: $(task_field MILESTONE)
+TASK_FINGERPRINT: $task_fp
+TASK_ITERATIONS: $task_iterations
+TASK_STARTED_AT: $task_started_at
 LAST_ACTION: escalation failed or exceeded limits
 NEXT_ACTION: manual intervention or provider override required
 CONTROLLER_DECISION: ESCALATE
