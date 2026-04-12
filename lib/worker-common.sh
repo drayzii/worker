@@ -236,6 +236,10 @@ worker_stop_active_pid() {
   fi
 }
 
+worker_pause_async() {
+  nohup "$REPO_DIR/worker-pause" "$BASE" >/dev/null 2>&1 &
+}
+
 worker_stitch_is_bound() {
   [ -f "$STITCH_BINDING_FILE" ]
 }

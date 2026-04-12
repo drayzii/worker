@@ -27,6 +27,7 @@ worker_test_generate_stack "$PROVIDER" "$NOTES"
 
 BLOCKED_REASON="$(worker_test_blocked_reason)"
 if [ -n "$BLOCKED_REASON" ]; then
+  worker_test_notify_slack_blocked "$BLOCKED_REASON"
   echo "Blocked: $BLOCKED_REASON" >&2
   exit 1
 fi
@@ -35,7 +36,17 @@ worker_test_remove_previous_sidecars
 TAILNET_DOMAIN="$(worker_test_tailnet_domain)"
 worker_test_runtime_write "$TAILNET_DOMAIN"
 worker_test_write_preview_compose
-worker_test_compose_up
-worker_test_wait_for_sidecars
-worker_test_apply_routes
+if ! worker_test_compose_up; then
+  worker_test_notify_slack_failure "docker compose up failed"
+  exit 1
+fi
+if ! worker_test_wait_for_sidecars; then
+  worker_test_notify_slack_failure "tailscale sidecars did not become ready"
+  exit 1
+fi
+if ! worker_test_apply_routes; then
+  worker_test_notify_slack_failure "failed to enable Funnel on preview sidecars"
+  exit 1
+fi
 worker_test_print_summary
+worker_test_notify_slack_status

@@ -12,6 +12,8 @@ source "$SCRIPT_DIR/../lib/worker-runner-briefs.sh"
 source "$SCRIPT_DIR/../lib/worker-runner-provider.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/../lib/worker-runner-prompts.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/../lib/worker-test.sh"
 
 BASE="${1:?usage: worker-runner <project-dir> [new|continue]}"
 MODE="${2:-continue}"
@@ -253,9 +255,15 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
   notify_task_hung_if_needed
 
   if status_complete; then
+    banner "worker-test on completion provider=$CONTROLLER"
+    if ! "$REPO_DIR/worker-test" "$BASE" "$CONTROLLER" "Automatic completion preview run."; then
+      banner "worker-test on completion failed"
+      worker_test_notify_slack_failure "automatic completion run failed"
+    fi
     notify_project_complete_if_needed
     save_state
     banner "project marked complete"
+    worker_pause_async
     break
   fi
 

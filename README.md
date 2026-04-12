@@ -83,7 +83,8 @@ export WORKER_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."
   - a provider blocks the run
   - a task reaches 5 iterations
   - a task runs longer than 15 minutes
-- the project is completed
+  - the project is completed
+  - `worker-test` produces preview URLs
 
 #### Tailscale Preview Auth
 
@@ -287,8 +288,15 @@ Then it:
 - runs `docker compose up -d`
 - starts one Tailscale sidecar per exposed service
 - enables Funnel inside each sidecar so every service gets its own public hostname
+- sends the preview URL summary to Slack if `WORKER_SLACK_WEBHOOK_URL` is set
 
 `worker-test-status` reads the saved runtime and shows the preview URLs.
+
+Project completion automatically:
+
+- runs `worker-test` with the controller provider
+- sends the preview summary to Slack
+- then pauses the worker session automatically
 
 Setup expectation:
 

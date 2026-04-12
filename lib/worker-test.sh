@@ -378,6 +378,42 @@ print((data.get("blocked_reason") or "").strip())
 PY
 }
 
+worker_test_slack_status_message() {
+  python3 - "$TEST_RUNTIME_FILE" "$BASE" <<'PY'
+import json, pathlib, sys
+
+runtime = json.loads(pathlib.Path(sys.argv[1]).read_text())
+project_name = pathlib.Path(sys.argv[2]).name
+
+lines = [f"worker-test: previews ready for {project_name}"]
+for item in runtime.get("services", []):
+    lines.append(f"- {item['key']}: {item['url']}")
+
+preview_env = runtime.get("preview_env") or []
+if preview_env:
+    lines.append("env:")
+    for item in preview_env:
+        lines.append(f"- {item['compose_service']}: {item['name']}={item['value']}")
+
+print("\n".join(lines))
+PY
+}
+
+worker_test_notify_slack_status() {
+  [ -f "$TEST_RUNTIME_FILE" ] || return 0
+  worker_notify_slack "$(worker_test_slack_status_message)"
+}
+
+worker_test_notify_slack_blocked() {
+  local reason="$1"
+  worker_notify_slack "worker-test blocked for $(worker_project_name): $reason"
+}
+
+worker_test_notify_slack_failure() {
+  local message="$1"
+  worker_notify_slack "worker-test failed for $(worker_project_name): $message"
+}
+
 worker_test_compose_args_file() {
   local output_file="$1"
   local preview_file="${2:-$TEST_PREVIEW_COMPOSE_FILE}"
