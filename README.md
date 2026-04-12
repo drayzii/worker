@@ -21,6 +21,7 @@ Optional:
 
 - Stitch MCP configured in the provider environment
 - a local Ollama-style endpoint if you want `.worker/tools/local-llm`
+- Slack incoming webhook if you want notifications
 
 Auth:
 
@@ -64,6 +65,21 @@ codex mcp list
 - Install and authenticate `claude`.
 - Add Stitch MCP in Claude Code using the Stitch MCP setup flow for Claude Code.
 - Verify the Stitch server is available in your Claude Code MCP configuration before using `worker`.
+
+#### Slack
+
+- Set a Slack incoming webhook URL if you want run notifications:
+
+```zsh
+export WORKER_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."
+```
+
+- Notifications are sent when:
+  - a task is completed
+  - a provider blocks the run
+  - a task reaches 5 iterations
+  - a task runs longer than 15 minutes
+  - the project is completed
 
 ## Quick Start
 

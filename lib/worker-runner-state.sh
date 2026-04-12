@@ -7,6 +7,11 @@ STAGE=$STAGE
 EXECUTOR_FAILURES=$EXECUTOR_FAILURES
 ESCALATION_FAILURES=$ESCALATION_FAILURES
 CONTROLLER_FAILURES=$CONTROLLER_FAILURES
+TASK_NOTIFICATION_FINGERPRINT=${TASK_NOTIFICATION_FINGERPRINT:-}
+TASK_ITERATION5_NOTIFIED=${TASK_ITERATION5_NOTIFIED:-0}
+TASK_HUNG_NOTIFIED=${TASK_HUNG_NOTIFIED:-0}
+PROJECT_COMPLETE_NOTIFIED=${PROJECT_COMPLETE_NOTIFIED:-0}
+BLOCKER_NOTIFICATION_KEY=${BLOCKER_NOTIFICATION_KEY:-}
 EOF
 }
 
@@ -50,6 +55,10 @@ text = p.read_text() if p.exists() else ""
 m = re.search(rf'^{re.escape(key)}:\s*(.+)$', text, flags=re.M)
 print(m.group(1).strip() if m else "")
 PY
+}
+
+task_title() {
+  task_field TITLE
 }
 
 status_field() {
@@ -100,6 +109,13 @@ task_fingerprint() {
   worker_fingerprint_files "$TASK_FILE"
 }
 
+task_notification_reset() {
+  local task_fp="${1:-}"
+  TASK_NOTIFICATION_FINGERPRINT="$task_fp"
+  TASK_ITERATION5_NOTIFIED=0
+  TASK_HUNG_NOTIFIED=0
+}
+
 sync_task_tracking() {
   local current_fp stored_fp
   current_fp="$(task_fingerprint)"
@@ -109,6 +125,7 @@ sync_task_tracking() {
     set_status_field TASK_FINGERPRINT ""
     set_status_field TASK_ITERATIONS "0"
     set_status_field TASK_STARTED_AT ""
+    task_notification_reset ""
     return 0
   fi
 
@@ -116,6 +133,7 @@ sync_task_tracking() {
     set_status_field TASK_FINGERPRINT "$current_fp"
     set_status_field TASK_ITERATIONS "0"
     set_status_field TASK_STARTED_AT "$(worker_utc_now)"
+    task_notification_reset "$current_fp"
   fi
 }
 
@@ -135,6 +153,109 @@ increment_task_iterations() {
   esac
   current_iterations=$((current_iterations + 1))
   set_status_field TASK_ITERATIONS "$current_iterations"
+}
+
+notify_task_iteration_milestone_if_needed() {
+  local current_fp current_iterations milestone title
+  current_fp="$(status_field TASK_FINGERPRINT)"
+  [ -n "$current_fp" ] || return 0
+
+  if [ "${TASK_NOTIFICATION_FINGERPRINT:-}" != "$current_fp" ]; then
+    task_notification_reset "$current_fp"
+  fi
+
+  current_iterations="$(status_field TASK_ITERATIONS)"
+  case "$current_iterations" in
+    ''|*[!0-9]*) current_iterations=0 ;;
+  esac
+
+  [ "$current_iterations" -ge 5 ] || return 0
+  [ "${TASK_ITERATION5_NOTIFIED:-0}" = "1" ] && return 0
+
+  milestone="$(task_field MILESTONE)"
+  title="$(task_title)"
+  worker_notify_slack "worker: task ${milestone:-unknown} (${title:-untitled}) has reached ${current_iterations} iterations in project $(worker_project_name)."
+  TASK_ITERATION5_NOTIFIED=1
+}
+
+task_started_age_minutes() {
+  local started_at="${1:-}"
+  [ -n "$started_at" ] || {
+    printf '0\n'
+    return 0
+  }
+  python3 - "$started_at" <<'PY'
+from datetime import datetime, timezone
+import sys
+
+started_at = sys.argv[1]
+try:
+    started = datetime.strptime(started_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+except ValueError:
+    print(0)
+    raise SystemExit(0)
+
+now = datetime.now(timezone.utc)
+delta = now - started
+print(max(0, int(delta.total_seconds() // 60)))
+PY
+}
+
+notify_task_hung_if_needed() {
+  local current_fp started_at age_minutes milestone title
+  current_fp="$(status_field TASK_FINGERPRINT)"
+  [ -n "$current_fp" ] || return 0
+
+  if [ "${TASK_NOTIFICATION_FINGERPRINT:-}" != "$current_fp" ]; then
+    task_notification_reset "$current_fp"
+  fi
+
+  [ "${TASK_HUNG_NOTIFIED:-0}" = "1" ] && return 0
+
+  started_at="$(status_field TASK_STARTED_AT)"
+  age_minutes="$(task_started_age_minutes "$started_at")"
+  [ "$age_minutes" -ge 15 ] || return 0
+
+  milestone="$(task_field MILESTONE)"
+  title="$(task_title)"
+  worker_notify_slack "worker: task ${milestone:-unknown} (${title:-untitled}) has been running for ${age_minutes} minutes in project $(worker_project_name)."
+  TASK_HUNG_NOTIFIED=1
+}
+
+notify_blocker_once() {
+  local source_name="$1"
+  local message="$2"
+  local notify_key
+  notify_key="$(python3 - "$source_name" "$message" <<'PY'
+import hashlib, sys
+print(hashlib.sha256(f"{sys.argv[1]}::{sys.argv[2]}".encode()).hexdigest())
+PY
+)"
+
+  [ "${BLOCKER_NOTIFICATION_KEY:-}" = "$notify_key" ] && return 0
+
+  worker_notify_slack "worker: ${source_name} blocked project $(worker_project_name): ${message}"
+  BLOCKER_NOTIFICATION_KEY="$notify_key"
+}
+
+clear_blocker_notification_if_unblocked() {
+  local blocker
+  blocker="$(status_field BLOCKER)"
+  if [ -z "$blocker" ]; then
+    BLOCKER_NOTIFICATION_KEY=""
+  fi
+}
+
+notify_task_completed() {
+  local milestone="$1"
+  local title="$2"
+  worker_notify_slack "worker: task ${milestone:-unknown} (${title:-untitled}) is complete in project $(worker_project_name)."
+}
+
+notify_project_complete_if_needed() {
+  [ "${PROJECT_COMPLETE_NOTIFIED:-0}" = "1" ] && return 0
+  worker_notify_slack "worker: project $(worker_project_name) is complete."
+  PROJECT_COMPLETE_NOTIFIED=1
 }
 
 normalize_status_for_stage() {
@@ -224,6 +345,7 @@ BLOCKER: $msg
 STATUS: INCOMPLETE
 EOF
   worker_stamp_file_end "$STATUS_FILE" "$(worker_utc_now)"
+  notify_blocker_once "controller" "$msg"
 }
 
 set_escalation_blocker() {
@@ -247,4 +369,5 @@ BLOCKER: $msg
 STATUS: INCOMPLETE
 EOF
   worker_stamp_file_end "$STATUS_FILE" "$(worker_utc_now)"
+  notify_blocker_once "escalation" "$msg"
 }

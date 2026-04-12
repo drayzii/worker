@@ -129,6 +129,31 @@ worker_utc_now() {
   date -u '+%Y-%m-%dT%H:%M:%SZ'
 }
 
+worker_project_name() {
+  basename "$BASE"
+}
+
+worker_notify_slack() {
+  local text="$1"
+  local webhook="${WORKER_SLACK_WEBHOOK_URL:-}"
+
+  if [ -z "$webhook" ]; then
+    return 0
+  fi
+
+  python3 - "$text" <<'PY' | curl -sS -X POST \
+    -H 'Content-type: application/json' \
+    --data @- \
+    "$webhook" >/dev/null 2>&1 || {
+import json, sys
+print(json.dumps({"text": sys.argv[1]}))
+PY
+    if [ -n "${LOG_FILE:-}" ]; then
+      echo "[worker] slack notification failed" >> "$LOG_FILE"
+    fi
+  }
+}
+
 worker_stamp_file_end() {
   local file="$1"
   local stamp="$2"

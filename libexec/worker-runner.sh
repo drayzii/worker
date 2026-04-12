@@ -37,6 +37,11 @@ fi
 : "${EXECUTOR_FAILURES:=0}"
 : "${ESCALATION_FAILURES:=0}"
 : "${CONTROLLER_FAILURES:=0}"
+: "${TASK_NOTIFICATION_FINGERPRINT:=}"
+: "${TASK_ITERATION5_NOTIFIED:=0}"
+: "${TASK_HUNG_NOTIFIED:=0}"
+: "${PROJECT_COMPLETE_NOTIFIED:=0}"
+: "${BLOCKER_NOTIFICATION_KEY:=}"
 
 MAX_ITERS=100
 ensure_status_skeleton
@@ -52,6 +57,7 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
     controller_plan)
       normalize_status_for_stage controller_plan
       sanitize_controller_decision
+      sync_task_tracking
       worker_stamp_artifacts
       write_controller_brief
       BEFORE_FP="$(state_fingerprint)"
@@ -70,6 +76,7 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
       fi
       post_turn_guard
       sanitize_controller_decision
+      sync_task_tracking
       worker_stamp_artifacts
       AFTER_FP="$(state_fingerprint)"
       if ! plan_artifacts_ready; then
@@ -83,12 +90,14 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
         break
       fi
       CONTROLLER_FAILURES=0
+      clear_blocker_notification_if_unblocked
       STAGE="executor"
       ;;
     executor)
       normalize_status_for_stage executor
       sanitize_controller_decision
       increment_task_iterations
+      notify_task_iteration_milestone_if_needed
       worker_stamp_artifacts
       write_executor_brief
       BEFORE_FP="$(state_fingerprint)"
@@ -102,13 +111,16 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
         if worker_provider_hit_max_turns; then
           set_status_field ROUTE_TO_ESCALATION YES
           set_status_field BLOCKER "Executor provider '$EXECUTOR' hit max turns."
+          notify_blocker_once "executor" "Executor provider '$EXECUTOR' hit max turns."
         else
           set_status_field ROUTE_TO_ESCALATION YES
           set_status_field BLOCKER "Executor provider '$EXECUTOR' failed: $(last_provider_error)"
+          notify_blocker_once "executor" "Executor provider '$EXECUTOR' failed: $(last_provider_error)"
         fi
       fi
       post_turn_guard
       sanitize_controller_decision
+      sync_task_tracking
       worker_stamp_artifacts
       AFTER_FP="$(state_fingerprint)"
       if worker_provider_noop || { [ "$BEFORE_FP" = "$AFTER_FP" ] && ! escalation_requested; }; then
@@ -122,14 +134,19 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
       else
         STAGE="controller_review"
       fi
+      clear_blocker_notification_if_unblocked
       ;;
     controller_review)
       normalize_status_for_stage controller_review
       sanitize_controller_decision
       increment_task_iterations
+      notify_task_iteration_milestone_if_needed
       worker_stamp_artifacts
       write_review_brief
       BEFORE_DECISION="$(controller_decision)"
+      BEFORE_TASK_FP="$(status_field TASK_FINGERPRINT)"
+      BEFORE_TASK_MILESTONE="$(task_field MILESTONE)"
+      BEFORE_TASK_TITLE="$(task_title)"
       BEFORE_FP="$(state_fingerprint)"
       banner "controller_review provider=$CONTROLLER iteration=$ITERATION"
       if ! run_provider "$CONTROLLER" "$(make_controller_review_prompt)" 15; then
@@ -146,14 +163,23 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
       fi
       post_turn_guard
       sanitize_controller_decision
+      sync_task_tracking
       worker_stamp_artifacts
       AFTER_FP="$(state_fingerprint)"
       DECISION="$(controller_decision)"
+      AFTER_TASK_FP="$(task_fingerprint)"
 
       if worker_provider_noop || { [ "$BEFORE_FP" = "$AFTER_FP" ] && [ "$BEFORE_DECISION" = "$DECISION" ]; }; then
         set_controller_blocker "Controller review made no meaningful progress."
         banner "controller review no progress; stopping"
         break
+      fi
+
+      if [ "$DECISION" = "ACCEPT" ] && [ -n "$BEFORE_TASK_FP" ] && [ "$BEFORE_TASK_FP" != "$AFTER_TASK_FP" ]; then
+        notify_task_completed "$BEFORE_TASK_MILESTONE" "$BEFORE_TASK_TITLE"
+      fi
+      if [ "$DECISION" = "COMPLETE" ] && [ -n "$BEFORE_TASK_FP" ]; then
+        notify_task_completed "$BEFORE_TASK_MILESTONE" "$BEFORE_TASK_TITLE"
       fi
 
       case "$DECISION" in
@@ -173,11 +199,13 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
           break
           ;;
       esac
+      clear_blocker_notification_if_unblocked
       ;;
     escalation)
       normalize_status_for_stage escalation
       sanitize_controller_decision
       increment_task_iterations
+      notify_task_iteration_milestone_if_needed
       worker_stamp_artifacts
       write_escalation_brief
       BEFORE_FP="$(state_fingerprint)"
@@ -196,6 +224,7 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
       fi
       post_turn_guard
       sanitize_controller_decision
+      sync_task_tracking
       worker_stamp_artifacts
       AFTER_FP="$(state_fingerprint)"
 
@@ -213,6 +242,7 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
 
       ESCALATION_FAILURES=$((ESCALATION_FAILURES + 1))
       STAGE="controller_review"
+      clear_blocker_notification_if_unblocked
       ;;
     *)
       STAGE="controller_plan"
@@ -220,8 +250,11 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
   esac
 
   save_state
+  notify_task_hung_if_needed
 
   if status_complete; then
+    notify_project_complete_if_needed
+    save_state
     banner "project marked complete"
     break
   fi
