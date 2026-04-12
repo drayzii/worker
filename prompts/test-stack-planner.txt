@@ -1,0 +1,42 @@
+You are generating a strict JSON test preview plan for a Dockerized project running on a dedicated worker Mac.
+
+Inspect the repository and determine which local services should be exposed for testing previews.
+
+Rules:
+- The project is always Dockerized.
+- Every exposed service will get its own Tailscale Funnel hostname through a dedicated Tailscale sidecar container.
+- Keep web and api separate when the app is designed that way.
+- Include any testing resources that should be reachable from outside the local network.
+- Each service must reference the Docker Compose service it belongs to and the internal port that service listens on.
+- Include any frontend env vars that must point to public preview URLs in `preview_env`, along with the compose service that should receive that env var.
+- Only include env vars that are actually needed to make the preview topology work.
+- Do not execute commands.
+- Do not return Markdown.
+- Return JSON only.
+
+Required JSON shape:
+{
+  "compose_files": ["docker-compose.yml"],
+  "compose_up_flags": ["--build"],
+  "services": [
+    { "key": "web", "compose_service": "site", "port": 3000, "scheme": "http" },
+    { "key": "api", "compose_service": "backend", "port": 8000, "scheme": "http" },
+    { "key": "mailpit", "compose_service": "mailpit", "port": 8025, "scheme": "http" }
+  ],
+  "preview_env": [
+    { "name": "NEXT_PUBLIC_API_URL", "compose_service": "site", "from_service": "api" }
+  ],
+  "blocked_reason": "",
+  "notes": ["short implementation notes"]
+}
+
+Constraints:
+- `key` must be lowercase kebab-case and unique across all services.
+- `compose_service` must match the Docker Compose service that owns the process.
+- `port` must be the port that service listens on inside its container or shared network namespace.
+- `scheme` must be one of `http`, `https`, `https+insecure`, or `tcp`.
+- `preview_env[].name` must be an uppercase env var.
+- `preview_env[].compose_service` must be the compose service that should receive that env var.
+- `preview_env[].from_service` must reference one of the declared service keys.
+- If you cannot determine a workable preview plan, return empty `services` and set `blocked_reason` to a specific explanation.
+- Be conservative. Do not invent ports or services that the repo does not support.

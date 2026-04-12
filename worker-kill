@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/worker-common.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/worker-test.sh"
 
 PROJECT_SELECTOR="${1:?usage: worker-kill <project-name|.|path> [--purge-volumes]}"
 PURGE_VOLUMES="${2:-}"
@@ -22,6 +24,9 @@ fi
 
 if [ -d "$BASE" ]; then
   cd "$BASE"
+  worker_test_remove_previous_sidecars
+  rm -f "$TEST_RUNTIME_FILE" "$TEST_ENV_FILE" "$TEST_PREVIEW_COMPOSE_FILE"
+  rm -rf "$TEST_TAILSCALE_DIR"
   if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ] || [ -f compose.yml ] || [ -f compose.yaml ]; then
     echo "Stopping Docker Compose services..."
     if [ "$PURGE_VOLUMES" = "--purge-volumes" ]; then

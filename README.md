@@ -14,6 +14,7 @@ Requirements:
 - `git`
 - `tmux`
 - `docker` and `docker compose`
+- `tailscale`
 - `codex`
 - `claude`
 
@@ -27,6 +28,7 @@ Auth:
 
 - `codex` must already be installed and logged in
 - `claude` must already be installed and logged in
+- `tailscale` must already be installed, logged in, and allowed to use Funnel on this node
 
 Shell setup:
 
@@ -47,6 +49,8 @@ Shortcuts:
 - `wk` -> `worker-kill .`
 - `wsb` -> `worker-stitch-bind .`
 - `wprd` -> `worker-prd . ...`
+- `wt` -> `worker-test . ...`
+- `wts` -> `worker-test-status .`
 
 ### Provider setup
 
@@ -79,7 +83,21 @@ export WORKER_SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."
   - a provider blocks the run
   - a task reaches 5 iterations
   - a task runs longer than 15 minutes
-  - the project is completed
+- the project is completed
+
+#### Tailscale Preview Auth
+
+- Set a reusable Tailscale auth key for preview sidecars:
+
+```zsh
+export WORKER_TAILSCALE_AUTHKEY="tskey-..."
+```
+
+- Recommended key properties:
+  - reusable
+  - pre-approved if your tailnet uses device approval
+  - ephemeral enabled if you want preview nodes to disappear when logged out
+  - tagged if your tailnet policy restricts Funnel to specific tags or node identities
 
 ## Quick Start
 
@@ -165,6 +183,22 @@ worker-prd <project-name|.|path> <codex|claude>
 Asks a short set of optional PRD questions, combines your answers with the repo's minimal PRD template, and writes `PRD.md`.
 It also writes `STITCH_PROMPT.md` as a starter document for generating first-pass Stitch screens from the same answers.
 
+`worker-test`
+
+```text
+worker-test <project-name|.|path> <codex|claude> [notes...]
+```
+
+Generates `.worker/test-stack.json` using the selected provider, starts the Docker stack, and exposes the detected services through Tailscale Funnel paths.
+
+`worker-test-status`
+
+```text
+worker-test-status <project-name|.|path>
+```
+
+Shows the configured test preview URLs and checks whether the Funnel paths appear active.
+
 ## Workflow
 
 - `PLAN.md` defines milestones.
@@ -211,6 +245,11 @@ Runtime state:
 - `.worker/escalation-brief.md`
 - `.worker/redirect-brief.md`
 - `.worker/stitch.json`
+- `.worker/test-stack.json`
+- `.worker/test-runtime.json`
+- `.worker/test.env`
+- `.worker/tailscale-previews.compose.yml`
+- `.worker/tailscale/`
 - `.worker/logs/run.log`
 - `.worker/logs/current-run.ndjson`
 
@@ -235,6 +274,22 @@ Behavior:
 
 This repo does not shell out to Stitch directly. Stitch is used through the provider environment.
 
+## Test Previews
+
+`worker-test` uses the selected provider to inspect the Dockerized project and write `.worker/test-stack.json`.
+
+Then it:
+
+- derives the tailnet domain from the host Tailscale client
+- computes one Tailscale hostname per exposed service
+- writes `.worker/tailscale-previews.compose.yml`
+- injects any preview env vars needed by the app into the compose override
+- runs `docker compose up -d`
+- starts one Tailscale sidecar per exposed service
+- enables Funnel inside each sidecar so every service gets its own public hostname
+
+`worker-test-status` reads the saved runtime and shows the preview URLs.
+
 Setup expectation:
 
 - Stitch MCP must be installed in the same provider runtime that `worker` uses
@@ -255,6 +310,8 @@ worker/
 ├── worker-continue
 ├── worker-stitch-bind
 ├── worker-prd
+├── worker-test
+├── worker-test-status
 ├── worker-redirect
 ├── worker-pause
 ├── worker-status

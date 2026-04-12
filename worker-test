@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/worker-common.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/worker-test.sh"
+
+[ $# -lt 2 ] && worker_test_usage
+
+PROJECT_SELECTOR="$1"
+shift
+PROVIDER="$1"
+shift
+
+worker_test_require_provider "$PROVIDER"
+worker_test_require_authkey
+worker_set_project_paths_from_selector "$PROJECT_SELECTOR"
+worker_require_project_dir
+worker_init_project_dirs
+
+NOTES="$*"
+
+echo "Generating test stack for: $BASE"
+worker_test_generate_stack "$PROVIDER" "$NOTES"
+
+BLOCKED_REASON="$(worker_test_blocked_reason)"
+if [ -n "$BLOCKED_REASON" ]; then
+  echo "Blocked: $BLOCKED_REASON" >&2
+  exit 1
+fi
+
+worker_test_remove_previous_sidecars
+TAILNET_DOMAIN="$(worker_test_tailnet_domain)"
+worker_test_runtime_write "$TAILNET_DOMAIN"
+worker_test_write_preview_compose
+worker_test_compose_up
+worker_test_wait_for_sidecars
+worker_test_apply_routes
+worker_test_print_summary

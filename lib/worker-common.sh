@@ -70,6 +70,11 @@ worker_set_project_paths_from_base() {
   REDIRECT_BRIEF_FILE="$BASE/.worker/redirect-brief.md"
   WORKER_RULES_FILE="$BASE/WORKER.md"
   STITCH_BINDING_FILE="$BASE/.worker/stitch.json"
+  TEST_STACK_FILE="$BASE/.worker/test-stack.json"
+  TEST_RUNTIME_FILE="$BASE/.worker/test-runtime.json"
+  TEST_ENV_FILE="$BASE/.worker/test.env"
+  TEST_PREVIEW_COMPOSE_FILE="$BASE/.worker/tailscale-previews.compose.yml"
+  TEST_TAILSCALE_DIR="$BASE/.worker/tailscale"
   PROMPTS_DIR="$REPO_DIR/prompts"
   TEMPLATES_DIR="$REPO_DIR/templates"
   SYSTEM_PROMPT_FILE="$REPO_DIR/prompts/system-prompt.txt"
@@ -131,6 +136,16 @@ worker_utc_now() {
 
 worker_project_name() {
   basename "$BASE"
+}
+
+worker_project_slug() {
+  python3 - "$BASE" <<'PY'
+import pathlib, re, sys
+
+name = pathlib.Path(sys.argv[1]).name.lower()
+slug = re.sub(r'[^a-z0-9]+', '-', name).strip('-')
+print(slug or "project")
+PY
 }
 
 worker_notify_slack() {

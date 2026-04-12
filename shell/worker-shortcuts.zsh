@@ -29,3 +29,11 @@ wsb() {
 wprd() {
   worker-prd . "$@"
 }
+
+wt() {
+  worker-test . "$@"
+}
+
+wts() {
+  worker-test-status .
+}
