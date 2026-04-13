@@ -55,7 +55,7 @@ else
   claude -p \
     --model sonnet \
     --permission-mode bypassPermissions \
-    --max-turns 4 \
+    --max-turns 10 \
     --output-format stream-json \
     --verbose \
     --include-partial-messages \
