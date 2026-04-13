@@ -258,6 +258,16 @@ notify_project_complete_if_needed() {
   PROJECT_COMPLETE_NOTIFIED=1
 }
 
+mark_project_complete() {
+  set_status_field PHASE "Complete"
+  set_status_field CONTROLLER_DECISION "COMPLETE"
+  set_status_field ROUTE_TO_ESCALATION "NO"
+  set_status_field BLOCKER ""
+  set_status_field NEXT_ACTION "none"
+  set_status_field STATUS "COMPLETE"
+  worker_stamp_file_end "$STATUS_FILE" "$(worker_utc_now)"
+}
+
 normalize_status_for_stage() {
   local stage="$1"
   local milestone

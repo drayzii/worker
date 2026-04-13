@@ -64,17 +64,24 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
       write_controller_brief
       BEFORE_FP="$(state_fingerprint)"
       banner "controller_plan provider=$CONTROLLER iteration=$ITERATION"
+      PROVIDER_EXIT=0
       if ! run_provider "$CONTROLLER" "$(make_controller_plan_prompt)" 15; then
-        if worker_provider_auth_failed; then
-          set_controller_blocker "Controller provider '$CONTROLLER' is not authenticated."
-          banner "controller auth failed; stopping"
-          break
-        fi
-        if worker_provider_hit_max_turns; then
-          set_controller_blocker "Controller provider '$CONTROLLER' hit max turns during planning."
-          banner "controller max turns; stopping"
-          break
-        fi
+        PROVIDER_EXIT=$?
+      fi
+      if worker_provider_auth_failed; then
+        set_controller_blocker "Controller provider '$CONTROLLER' is not authenticated."
+        banner "controller auth failed; stopping"
+        break
+      fi
+      if worker_provider_hit_max_turns; then
+        set_controller_blocker "Controller provider '$CONTROLLER' hit max turns during planning."
+        banner "controller max turns; stopping"
+        break
+      fi
+      if [ "$PROVIDER_EXIT" -ne 0 ]; then
+        set_controller_blocker "Controller provider '$CONTROLLER' failed: $(last_provider_error)"
+        banner "controller planning failed; stopping"
+        break
       fi
       post_turn_guard
       sanitize_controller_decision
@@ -104,21 +111,23 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
       write_executor_brief
       BEFORE_FP="$(state_fingerprint)"
       banner "executor provider=$EXECUTOR iteration=$ITERATION"
+      PROVIDER_EXIT=0
       if ! run_provider "$EXECUTOR" "$(make_executor_prompt)" 6; then
-        if worker_provider_auth_failed; then
-          set_escalation_blocker "Executor provider '$EXECUTOR' is not authenticated."
-          banner "executor auth failed; stopping"
-          break
-        fi
-        if worker_provider_hit_max_turns; then
-          set_status_field ROUTE_TO_ESCALATION YES
-          set_status_field BLOCKER "Executor provider '$EXECUTOR' hit max turns."
-          notify_blocker_once "executor" "Executor provider '$EXECUTOR' hit max turns."
-        else
-          set_status_field ROUTE_TO_ESCALATION YES
-          set_status_field BLOCKER "Executor provider '$EXECUTOR' failed: $(last_provider_error)"
-          notify_blocker_once "executor" "Executor provider '$EXECUTOR' failed: $(last_provider_error)"
-        fi
+        PROVIDER_EXIT=$?
+      fi
+      if worker_provider_auth_failed; then
+        set_escalation_blocker "Executor provider '$EXECUTOR' is not authenticated."
+        banner "executor auth failed; stopping"
+        break
+      fi
+      if worker_provider_hit_max_turns; then
+        set_status_field ROUTE_TO_ESCALATION YES
+        set_status_field BLOCKER "Executor provider '$EXECUTOR' hit max turns."
+        notify_blocker_once "executor" "Executor provider '$EXECUTOR' hit max turns."
+      elif [ "$PROVIDER_EXIT" -ne 0 ]; then
+        set_status_field ROUTE_TO_ESCALATION YES
+        set_status_field BLOCKER "Executor provider '$EXECUTOR' failed: $(last_provider_error)"
+        notify_blocker_once "executor" "Executor provider '$EXECUTOR' failed: $(last_provider_error)"
       fi
       post_turn_guard
       sanitize_controller_decision
@@ -151,17 +160,24 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
       BEFORE_TASK_TITLE="$(task_title)"
       BEFORE_FP="$(state_fingerprint)"
       banner "controller_review provider=$CONTROLLER iteration=$ITERATION"
+      PROVIDER_EXIT=0
       if ! run_provider "$CONTROLLER" "$(make_controller_review_prompt)" 15; then
-        if worker_provider_auth_failed; then
-          set_controller_blocker "Controller provider '$CONTROLLER' is not authenticated during review."
-          banner "controller review auth failed; stopping"
-          break
-        fi
-        if worker_provider_hit_max_turns; then
-          set_controller_blocker "Controller review hit max turns."
-          banner "controller review max turns; stopping"
-          break
-        fi
+        PROVIDER_EXIT=$?
+      fi
+      if worker_provider_auth_failed; then
+        set_controller_blocker "Controller provider '$CONTROLLER' is not authenticated during review."
+        banner "controller review auth failed; stopping"
+        break
+      fi
+      if worker_provider_hit_max_turns; then
+        set_controller_blocker "Controller review hit max turns."
+        banner "controller review max turns; stopping"
+        break
+      fi
+      if [ "$PROVIDER_EXIT" -ne 0 ]; then
+        set_controller_blocker "Controller review failed: $(last_provider_error)"
+        banner "controller review failed; stopping"
+        break
       fi
       post_turn_guard
       sanitize_controller_decision
@@ -182,6 +198,7 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
       fi
       if [ "$DECISION" = "COMPLETE" ] && [ -n "$BEFORE_TASK_FP" ]; then
         notify_task_completed "$BEFORE_TASK_MILESTONE" "$BEFORE_TASK_TITLE"
+        mark_project_complete
       fi
 
       case "$DECISION" in
@@ -212,17 +229,24 @@ while [ "$ITERATION" -lt "$MAX_ITERS" ]; do
       write_escalation_brief
       BEFORE_FP="$(state_fingerprint)"
       banner "escalation provider=$ESCALATION iteration=$ITERATION"
+      PROVIDER_EXIT=0
       if ! run_provider "$ESCALATION" "$(make_escalation_prompt)" 20; then
-        if worker_provider_hit_max_turns; then
-          set_escalation_blocker "Escalation provider '$ESCALATION' hit max turns while resolving blocker."
-          banner "escalation max turns; stopping"
-          break
-        fi
-        if worker_provider_auth_failed; then
-          set_escalation_blocker "Escalation provider '$ESCALATION' is not authenticated."
-          banner "escalation auth failed; stopping"
-          break
-        fi
+        PROVIDER_EXIT=$?
+      fi
+      if worker_provider_hit_max_turns; then
+        set_escalation_blocker "Escalation provider '$ESCALATION' hit max turns while resolving blocker."
+        banner "escalation max turns; stopping"
+        break
+      fi
+      if worker_provider_auth_failed; then
+        set_escalation_blocker "Escalation provider '$ESCALATION' is not authenticated."
+        banner "escalation auth failed; stopping"
+        break
+      fi
+      if [ "$PROVIDER_EXIT" -ne 0 ]; then
+        set_escalation_blocker "Escalation provider '$ESCALATION' failed: $(last_provider_error)"
+        banner "escalation failed; stopping"
+        break
       fi
       post_turn_guard
       sanitize_controller_decision
