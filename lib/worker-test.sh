@@ -289,9 +289,9 @@ import re, sys
 
 slug = sys.argv[1]
 service = sys.argv[2]
-name = f"worker-{slug}-{service}".lower()
+name = f"{slug}-{service}".lower()
 name = re.sub(r"[^a-z0-9-]+", "-", name).strip("-")
-print(name[:63].rstrip("-") or "worker-preview")
+print(name[:63].rstrip("-") or "preview")
 PY
 }
 
@@ -318,7 +318,7 @@ runtime = {
 service_urls = {}
 for item in data.get("services", []):
     key = item["key"]
-    node_hostname = f"worker-{slug}-{key}".lower()
+    node_hostname = f"{slug}-{key}".lower()
     node_hostname = node_hostname[:63].rstrip("-") or "worker-preview"
     url = f"https://{node_hostname}.{tailnet_domain}"
     sidecar_service = f"ts-preview-{key}"
