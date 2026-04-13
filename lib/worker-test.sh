@@ -90,6 +90,33 @@ worker_test_generate_stack_with_claude() {
   )
 }
 
+worker_test_resolve_stack_source() {
+  local raw_output_file="$1"
+  python3 - "$raw_output_file" "$TEST_STACK_FILE" <<'PY'
+import json, pathlib, sys
+
+raw_path = pathlib.Path(sys.argv[1])
+stack_path = pathlib.Path(sys.argv[2])
+
+def is_valid_json_object(path: pathlib.Path) -> bool:
+    if not path.exists():
+        return False
+    text = path.read_text().strip()
+    if not text:
+        return False
+    try:
+        value = json.loads(text)
+    except Exception:
+        return False
+    return isinstance(value, dict)
+
+if is_valid_json_object(stack_path):
+    print(stack_path)
+else:
+    print(raw_path)
+PY
+}
+
 worker_test_normalize_and_validate_stack() {
   local input_file="$1"
   python3 - "$input_file" "$TEST_STACK_FILE" <<'PY'
@@ -239,7 +266,7 @@ worker_test_generate_stack() {
     worker_test_generate_stack_with_claude "$prompt_file" "$raw_output"
   fi
 
-  worker_test_normalize_and_validate_stack "$raw_output"
+  worker_test_normalize_and_validate_stack "$(worker_test_resolve_stack_source "$raw_output")"
 }
 
 worker_test_tailnet_domain() {
