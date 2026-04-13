@@ -86,7 +86,6 @@ worker_test_generate_stack_with_claude() {
       --model sonnet \
       --permission-mode bypassPermissions \
       --max-turns 10 \
-      --append-system-prompt "$(cat "$SYSTEM_PROMPT_FILE")" \
       "$prompt_text" > "$output_file" 2>&1
   )
 }
