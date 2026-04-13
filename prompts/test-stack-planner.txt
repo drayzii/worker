@@ -9,6 +9,7 @@ Rules:
 - Include any testing resources that should be reachable from outside the local network.
 - Each service must reference the Docker Compose service it belongs to and the internal port that service listens on.
 - Include any frontend env vars that must point to public preview URLs in `preview_env`, along with the compose service that should receive that env var.
+- Prefer the actual runtime env vars consumed by the app or container process. Do not invent `DOCKER_*` aliases unless the repo clearly uses them as the real consumed variables.
 - Only include env vars that are actually needed to make the preview topology work.
 - Do not execute commands.
 - Do not return Markdown.
