@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 
 write_controller_brief() {
-  local project_prompt extra current_status important_files file_tree stitch_binding stitch_live_note
+  local project_prompt extra current_status important_files file_tree stitch_binding stitch_live_note prd_text stitch_summary_text
   project_prompt="$(latest_project_prompt)"
   extra="$(latest_extra)"
   current_status="$(tail -n 30 "$STATUS_FILE" 2>/dev/null || true)"
   stitch_binding="$(worker_stitch_binding_summary)"
+  prd_text="$(cat "$PRD_FILE" 2>/dev/null || true)"
+  stitch_summary_text="$(cat "$STITCH_SUMMARY_FILE" 2>/dev/null || true)"
   if worker_stitch_is_bound; then
     stitch_live_note="Use Stitch MCP directly for current project context before planning. `.worker/stitch.json` identifies the linked Stitch project, and the linked Stitch screens are the source of truth for current UI state."
   else
@@ -30,11 +32,17 @@ $extra
 CURRENT STATUS:
 $current_status
 
+PRD.md:
+$prd_text
+
 STITCH BINDING:
 $stitch_binding
 
 STITCH MCP MODE:
 $stitch_live_note
+
+STITCH_SUMMARY.md:
+$stitch_summary_text
 
 IMPORTANT FILES:
 $important_files

@@ -26,6 +26,10 @@ wsb() {
   worker-stitch-bind . "$@"
 }
 
+wss() {
+  worker-stitch-sync . "$@"
+}
+
 wprd() {
   worker-prd . "$@"
 }

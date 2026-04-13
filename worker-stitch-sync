@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/worker-common.sh"
+
+usage() {
+  echo "usage: worker-stitch-sync <project-name|.|path> <codex|claude>" >&2
+  exit 2
+}
+
+[ $# -lt 2 ] && usage
+
+PROJECT_SELECTOR="$1"
+shift
+PROVIDER="$1"
+
+worker_set_project_paths_from_selector "$PROJECT_SELECTOR"
+worker_require_project_dir
+worker_init_project_dirs
+
+if ! worker_stitch_is_bound; then
+  echo "No Stitch binding found: $STITCH_BINDING_FILE" >&2
+  exit 1
+fi
+
+case "$PROVIDER" in
+  codex|claude) ;;
+  *) echo "Unknown provider: $PROVIDER" >&2; usage ;;
+esac
+
+TMP_PROMPT="$(mktemp)"
+TMP_OUTPUT="$(mktemp)"
+trap 'rm -f "$TMP_PROMPT" "$TMP_OUTPUT"' EXIT
+
+{
+  read_prompt_file stitch-summary-writer.txt
+  printf '\n\nPROJECT DIRECTORY: %s\n' "$BASE"
+  printf 'TARGET FILE: %s\n' "$STITCH_SUMMARY_FILE"
+  printf 'STITCH BINDING:\n%s\n' "$(worker_stitch_binding_summary)"
+  if [ -f "$PRD_FILE" ]; then
+    printf '\nPRD.md:\n'
+    cat "$PRD_FILE"
+    printf '\n'
+  else
+    printf '\nPRD.md: missing\n'
+  fi
+} > "$TMP_PROMPT"
+
+if [ "$PROVIDER" = "codex" ]; then
+  codex exec \
+    -C "$BASE" \
+    --skip-git-repo-check \
+    --ephemeral \
+    --output-last-message "$TMP_OUTPUT" \
+    - < "$TMP_PROMPT"
+else
+  PROMPT_TEXT="$(cat "$TMP_PROMPT")"
+  (
+    cd "$BASE"
+    claude -p \
+      --model sonnet \
+      --permission-mode bypassPermissions \
+      --max-turns 4 \
+      --append-system-prompt "$(cat "$SYSTEM_PROMPT_FILE")" \
+      "$PROMPT_TEXT" > "$TMP_OUTPUT"
+  )
+fi
+
+python3 - "$TMP_OUTPUT" "$STITCH_SUMMARY_FILE" <<'PY'
+import pathlib, re, sys
+
+src = pathlib.Path(sys.argv[1])
+dst = pathlib.Path(sys.argv[2])
+text = src.read_text() if src.exists() else ""
+text = text.strip()
+
+fenced = re.match(r"^```(?:md|markdown)?\n(.*)\n```$", text, flags=re.S)
+if fenced:
+    text = fenced.group(1).strip()
+
+if not text:
+    raise SystemExit("Generated Stitch summary output was empty.")
+
+dst.write_text(text.rstrip() + "\n")
+PY
+
+echo "Wrote: $STITCH_SUMMARY_FILE"

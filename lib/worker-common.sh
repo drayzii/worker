@@ -69,6 +69,8 @@ worker_set_project_paths_from_base() {
   ESCALATION_BRIEF_FILE="$BASE/.worker/escalation-brief.md"
   REDIRECT_BRIEF_FILE="$BASE/.worker/redirect-brief.md"
   WORKER_RULES_FILE="$BASE/WORKER.md"
+  PRD_FILE="$BASE/PRD.md"
+  STITCH_SUMMARY_FILE="$BASE/STITCH_SUMMARY.md"
   STITCH_BINDING_FILE="$BASE/.worker/stitch.json"
   TEST_STACK_FILE="$BASE/.worker/test-stack.json"
   TEST_RUNTIME_FILE="$BASE/.worker/test-runtime.json"

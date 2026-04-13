@@ -40,4 +40,4 @@ worker_write_stitch_binding "$STITCH_PROJECT_ID" "$STITCH_WORKSPACE_ID" "$STITCH
 echo "Stitch project bound."
 echo "project: $BASE"
 echo "binding: $STITCH_BINDING_FILE"
-echo "Use Stitch MCP directly from bound providers for live project context."
+echo "Run worker-stitch-sync \"$BASE\" to generate STITCH_SUMMARY.md from the bound Stitch project."

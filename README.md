@@ -48,6 +48,7 @@ Shortcuts:
 - `wp` -> `worker-pause .`
 - `wk` -> `worker-kill .`
 - `wsb` -> `worker-stitch-bind .`
+- `wss` -> `worker-stitch-sync . ...`
 - `wprd` -> `worker-prd . ...`
 - `wt` -> `worker-test . ...`
 - `wts` -> `worker-test-status .`
@@ -175,6 +176,14 @@ worker-kill <project-name|.|path> [--purge-volumes]
 worker-stitch-bind <project-name|.|path> <stitch-project-id> [--workspace <id>] [--name <name>] [--url <url>]
 ```
 
+`worker-stitch-sync`
+
+```text
+worker-stitch-sync <project-name|.|path> <codex|claude>
+```
+
+Generates `STITCH_SUMMARY.md` from the bound Stitch project, using Stitch MCP and `PRD.md` when available.
+
 `worker-prd`
 
 ```text
@@ -227,6 +236,7 @@ Project root:
 
 - `PRD.md`
 - `STITCH_PROMPT.md`
+ - `STITCH_SUMMARY.md`
 - `WORKER.md`
 - `PLAN.md`
 - `TASK.md`
@@ -264,13 +274,16 @@ Usage:
 
 ```zsh
 worker-stitch-bind . stitch-project-123 --name "My App"
+worker-stitch-sync . codex
 ```
 
 Behavior:
 
 - the binding file stores project identity
+- `worker-stitch-sync` pulls the linked Stitch screens through the provider and writes `STITCH_SUMMARY.md`
 - the providers are instructed to use Stitch MCP directly
 - controller uses it during planning and review when bound
+- controller planning reads `STITCH_SUMMARY.md` alongside current `PRD.md` context when it exists
 - executor uses it on demand for exact screens, assets, and specs
 
 This repo does not shell out to Stitch directly. Stitch is used through the provider environment.

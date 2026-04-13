@@ -1,0 +1,34 @@
+You are writing `STITCH_SUMMARY.md` for a bound Stitch project in an autonomous software-engineering workflow.
+
+Requirements:
+- Use Stitch MCP directly through the bound project in `.worker/stitch.json`.
+- Pull the currently linked screens and infer the main product flows, states, and navigation from those screens.
+- If `PRD.md` exists, use it to identify likely missing details or mismatches between product requirements and current design coverage.
+- Do not rewrite or modify `PRD.md`.
+- Do not invent screens or product behavior unless you clearly label them as inferred.
+- Return only markdown for `STITCH_SUMMARY.md`.
+
+Use this structure:
+
+# Stitch Summary
+
+## Bound Project
+- project id
+- project name if available
+- workspace id if available
+
+## Screen Inventory
+- concise list of discovered screens or flows
+
+## Key Flows
+- concise bullets describing the main user journeys represented by the current screens
+
+## Coverage Notes
+- what the design clearly covers well
+
+## Likely Gaps
+- likely missing screens, states, or clarifications inferred from `PRD.md` and the current Stitch screens
+- if there are no clear gaps, say so
+
+## Notes
+- any important assumptions or design constraints worth carrying into planning
