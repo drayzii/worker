@@ -24,7 +24,7 @@ Required JSON shape:
     { "key": "mailpit", "compose_service": "mailpit", "port": 8025, "scheme": "http" }
   ],
   "preview_env": [
-    { "name": "NEXT_PUBLIC_API_URL", "compose_service": "site", "from_service": "api" }
+    { "name": "NEXT_PUBLIC_API_URL", "compose_service": "site", "from_service": "api", "injection": "environment" }
   ],
   "blocked_reason": "",
   "notes": ["short implementation notes"]
@@ -38,5 +38,6 @@ Constraints:
 - `preview_env[].name` must be an uppercase env var.
 - `preview_env[].compose_service` must be the compose service that should receive that env var.
 - `preview_env[].from_service` must reference one of the declared service keys.
+- `preview_env[].injection` must be either `environment` or `build_arg`.
 - If you cannot determine a workable preview plan, return empty `services` and set `blocked_reason` to a specific explanation.
 - Be conservative. Do not invent ports or services that the repo does not support.

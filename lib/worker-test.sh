@@ -218,6 +218,7 @@ for item in preview_env:
     name = item.get("name", "")
     compose_service = item.get("compose_service", "")
     from_service = item.get("from_service", "")
+    injection = item.get("injection", "environment")
 
     if not isinstance(name, str) or not re.fullmatch(r"[A-Z_][A-Z0-9_]*", name):
         raise SystemExit("preview_env names must be valid uppercase env vars.")
@@ -225,11 +226,14 @@ for item in preview_env:
         raise SystemExit("preview_env compose_service must reference a known compose service.")
     if not isinstance(from_service, str) or from_service not in service_keys:
         raise SystemExit("preview_env from_service must reference a known service key.")
+    if injection not in {"environment", "build_arg"}:
+        raise SystemExit("preview_env injection must be either environment or build_arg.")
 
     normalized_preview_env.append({
         "name": name,
         "compose_service": compose_service,
         "from_service": from_service,
+        "injection": injection,
     })
 
 if blocked_reason and normalized_services:
@@ -342,6 +346,7 @@ for item in data.get("preview_env", []):
         "name": item["name"],
         "compose_service": item["compose_service"],
         "from_service": item["from_service"],
+        "injection": item.get("injection", "environment"),
         "value": value,
     })
     env_lines.append(f"{item['name']}={value}")
@@ -369,17 +374,28 @@ runtime = json.loads(pathlib.Path(sys.argv[1]).read_text())
 output = pathlib.Path(sys.argv[2])
 
 env_by_service = {}
+build_args_by_service = {}
 for item in runtime.get("preview_env", []):
-    env_by_service.setdefault(item["compose_service"], []).append(item)
+    if item.get("injection") == "build_arg":
+        build_args_by_service.setdefault(item["compose_service"], []).append(item)
+    else:
+        env_by_service.setdefault(item["compose_service"], []).append(item)
 
 lines = ["services:"]
 
-for compose_service, entries in env_by_service.items():
+for compose_service in sorted(set(env_by_service) | set(build_args_by_service)):
     lines.append(f"  {compose_service}:")
-    lines.append("    environment:")
-    for item in entries:
-        value = item["value"].replace('"', '\\"')
-        lines.append(f'      {item["name"]}: "{value}"')
+    if compose_service in env_by_service:
+        lines.append("    environment:")
+        for item in env_by_service[compose_service]:
+            value = item["value"].replace('"', '\\"')
+            lines.append(f'      {item["name"]}: "{value}"')
+    if compose_service in build_args_by_service:
+        lines.append("    build:")
+        lines.append("      args:")
+        for item in build_args_by_service[compose_service]:
+            value = item["value"].replace('"', '\\"')
+            lines.append(f'        {item["name"]}: "{value}"')
 
 for item in runtime.get("services", []):
     key = item["key"]
@@ -627,6 +643,94 @@ PY
       exit 1
     fi
   done
+}
+
+worker_test_refresh_runtime_urls_from_sidecars() {
+  local args_file
+  args_file="$(mktemp)"
+  worker_test_compose_args_file "$args_file"
+
+  local -a args=()
+  while IFS= read -r -d '' part; do
+    args+=("$part")
+  done < "$args_file"
+  rm -f "$args_file"
+
+  local tmp_dns
+  tmp_dns="$(mktemp)"
+
+  python3 - "$TEST_RUNTIME_FILE" <<'PY' | while IFS=$'\t' read -r sidecar_service; do
+import json, pathlib, sys
+
+runtime = json.loads(pathlib.Path(sys.argv[1]).read_text())
+for item in runtime.get("services", []):
+    print(item["sidecar_service"])
+PY
+    local cid status_json dns_name
+    cid="$(docker compose "${args[@]}" ps -q "$sidecar_service" 2>/dev/null || true)"
+    [ -n "$cid" ] || continue
+    status_json="$(docker exec "$cid" tailscale status --json 2>/dev/null || true)"
+    dns_name="$(python3 - "$status_json" <<'PY'
+import json, sys
+
+raw = sys.argv[1]
+if not raw.strip():
+    print("")
+    raise SystemExit(0)
+try:
+    data = json.loads(raw)
+except Exception:
+    print("")
+    raise SystemExit(0)
+print((((data.get("Self") or {}).get("DNSName")) or "").rstrip("."))
+PY
+)"
+    [ -n "$dns_name" ] || continue
+    printf '%s\t%s\n' "$sidecar_service" "$dns_name" >> "$tmp_dns"
+  done
+
+  local refresh_result
+  refresh_result="$(python3 - "$TEST_RUNTIME_FILE" "$TEST_ENV_FILE" "$tmp_dns" <<'PY'
+import json, pathlib, sys
+
+runtime_path = pathlib.Path(sys.argv[1])
+env_path = pathlib.Path(sys.argv[2])
+dns_path = pathlib.Path(sys.argv[3])
+
+runtime = json.loads(runtime_path.read_text())
+dns_by_sidecar = {}
+if dns_path.exists():
+    for line in dns_path.read_text().splitlines():
+        if "\t" not in line:
+            continue
+        sidecar, dns_name = line.split("\t", 1)
+        dns_by_sidecar[sidecar] = dns_name.strip()
+
+changed = False
+service_urls = {}
+for item in runtime.get("services", []):
+    dns_name = dns_by_sidecar.get(item["sidecar_service"], "").strip()
+    actual_url = f"https://{dns_name}" if dns_name else item.get("url", "")
+    if item.get("url") != actual_url:
+        item["url"] = actual_url
+        changed = True
+    service_urls[item["key"]] = item.get("url", "")
+
+env_lines = []
+for item in runtime.get("preview_env", []):
+    value = service_urls.get(item["from_service"], item.get("value", ""))
+    if item.get("value") != value:
+        item["value"] = value
+        changed = True
+    env_lines.append(f"{item['name']}={value}")
+
+runtime_path.write_text(json.dumps(runtime, indent=2) + "\n")
+env_path.write_text("\n".join(env_lines) + ("\n" if env_lines else ""))
+print("changed" if changed else "unchanged")
+PY
+)"
+  rm -f "$tmp_dns"
+  printf '%s\n' "$refresh_result"
 }
 
 worker_test_apply_routes() {

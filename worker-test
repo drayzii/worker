@@ -44,6 +44,13 @@ if ! worker_test_wait_for_sidecars; then
   worker_test_notify_slack_failure "tailscale sidecars did not become ready"
   exit 1
 fi
+if [ "$(worker_test_refresh_runtime_urls_from_sidecars)" = "changed" ]; then
+  worker_test_write_preview_compose
+  if ! worker_test_compose_up; then
+    worker_test_notify_slack_failure "docker compose up failed after refreshing preview URLs"
+    exit 1
+  fi
+fi
 if ! worker_test_apply_routes; then
   worker_test_notify_slack_failure "failed to enable Funnel on preview sidecars"
   exit 1
