@@ -391,7 +391,6 @@ for item in runtime.get("services", []):
     lines.extend([
         f"  {sidecar}:",
         "    image: tailscale/tailscale:latest",
-        f'    hostname: "{node_hostname}"',
         '    environment:',
         '      TS_AUTHKEY: "${WORKER_TAILSCALE_AUTHKEY:?Set WORKER_TAILSCALE_AUTHKEY}"',
         '      TS_AUTH_ONCE: "true"',
