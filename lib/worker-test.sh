@@ -339,8 +339,49 @@ for item in data.get("services", []):
     })
     service_urls[key] = url
 
-env_lines = []
+expanded_preview_env = []
+seen_preview_env = set()
 for item in data.get("preview_env", []):
+    normalized = {
+        "name": item["name"],
+        "compose_service": item["compose_service"],
+        "from_service": item["from_service"],
+        "injection": item.get("injection", "environment"),
+    }
+    key = (
+        normalized["name"],
+        normalized["compose_service"],
+        normalized["from_service"],
+        normalized["injection"],
+    )
+    if key not in seen_preview_env:
+        expanded_preview_env.append(normalized)
+        seen_preview_env.add(key)
+
+    # Many repos use DOCKER_* as an intermediate compose env name while the app
+    # itself reads the stripped runtime variable. Mirror those for environment
+    # injection so previews do not depend on the planner picking the exact alias.
+    if normalized["injection"] == "environment" and normalized["name"].startswith("DOCKER_"):
+        runtime_name = normalized["name"][7:]
+        if runtime_name:
+            alias = {
+                "name": runtime_name,
+                "compose_service": normalized["compose_service"],
+                "from_service": normalized["from_service"],
+                "injection": "environment",
+            }
+            alias_key = (
+                alias["name"],
+                alias["compose_service"],
+                alias["from_service"],
+                alias["injection"],
+            )
+            if alias_key not in seen_preview_env:
+                expanded_preview_env.append(alias)
+                seen_preview_env.add(alias_key)
+
+env_lines = []
+for item in expanded_preview_env:
     value = service_urls[item["from_service"]]
     runtime["preview_env"].append({
         "name": item["name"],
