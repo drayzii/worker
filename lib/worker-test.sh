@@ -492,18 +492,40 @@ worker_test_compose_args_array() {
   printf '%s\0' "${args[@]}"
 }
 
-worker_test_compose_up() {
-  local args_file
-  args_file="$(mktemp)"
-  worker_test_compose_args_file "$args_file"
+worker_test_compose_up_flags_file() {
+  local output_file="$1"
+  python3 - "$TEST_STACK_FILE" <<'PY' > "$output_file"
+import json, pathlib, sys
 
-  local -a args=()
+stack_path = pathlib.Path(sys.argv[1])
+stack = json.loads(stack_path.read_text()) if stack_path.exists() else {}
+parts = []
+for flag in stack.get("compose_up_flags", []):
+    parts.append(str(flag))
+if parts:
+    sys.stdout.buffer.write(b"\0".join(part.encode() for part in parts) + b"\0")
+PY
+}
+
+worker_test_compose_up() {
+  local args_file flags_file
+  args_file="$(mktemp)"
+  flags_file="$(mktemp)"
+  worker_test_compose_args_file "$args_file"
+  worker_test_compose_up_flags_file "$flags_file"
+
+  local -a args=() up_flags=()
   while IFS= read -r -d '' part; do
     args+=("$part")
   done < "$args_file"
   rm -f "$args_file"
 
-  docker compose "${args[@]}" up -d
+  while IFS= read -r -d '' part; do
+    up_flags+=("$part")
+  done < "$flags_file"
+  rm -f "$flags_file"
+
+  docker compose "${args[@]}" up "${up_flags[@]}" -d
 }
 
 worker_test_current_sidecar_services() {
