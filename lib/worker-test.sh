@@ -85,9 +85,9 @@ worker_test_generate_stack_with_claude() {
     claude -p \
       --model sonnet \
       --permission-mode bypassPermissions \
-      --max-turns 4 \
+      --max-turns 10 \
       --append-system-prompt "$(cat "$SYSTEM_PROMPT_FILE")" \
-      "$prompt_text" > "$output_file"
+      "$prompt_text" > "$output_file" 2>&1
   )
 }
 
@@ -108,7 +108,28 @@ if fenced:
 if not text:
     raise SystemExit("Generated test stack output was empty.")
 
-data = json.loads(text)
+def extract_json_candidate(raw: str):
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
+
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(raw):
+        if ch not in "[{":
+            continue
+        try:
+            value, end = decoder.raw_decode(raw[i:])
+        except Exception:
+            continue
+        trailing = raw[i + end :].strip()
+        if trailing and not trailing.startswith("```"):
+            # We found valid JSON with trailing noise; keep it anyway.
+            return value
+        return value
+    raise SystemExit("Could not extract a JSON test stack from provider output.")
+
+data = extract_json_candidate(text)
 if not isinstance(data, dict):
     raise SystemExit("Test stack must be a JSON object.")
 
