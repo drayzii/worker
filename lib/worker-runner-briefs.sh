@@ -9,7 +9,7 @@ write_controller_brief() {
   prd_present="$([ -f "$PRD_FILE" ] && echo yes || echo no)"
   stitch_summary_present="$([ -f "$STITCH_SUMMARY_FILE" ] && echo yes || echo no)"
   if worker_stitch_is_bound; then
-    stitch_live_note="Use Stitch MCP directly for current project context before planning. `.worker/stitch.json` identifies the linked Stitch project, and the linked Stitch screens are the source of truth for current UI state."
+    stitch_live_note="Use Stitch MCP directly for current project context before planning. .worker/stitch.json identifies the linked Stitch project, and the linked Stitch screens are the source of truth for current UI state."
   else
     stitch_live_note="No Stitch binding file is present for this project."
   fi
@@ -72,7 +72,7 @@ write_executor_brief() {
   changed="$(git status --short 2>/dev/null | tail -n 60 || true)"
   stitch_binding="$(worker_stitch_binding_summary)"
   if worker_stitch_is_bound; then
-    stitch_live_note="For UI work, fetch exact linked screens, assets, and specs on demand via Stitch MCP using `.worker/stitch.json` and the bound project identity."
+    stitch_live_note="For UI work, fetch exact linked screens, assets, and specs on demand via Stitch MCP using .worker/stitch.json and the bound project identity."
   else
     stitch_live_note="No Stitch binding file is present for this project."
   fi
@@ -110,7 +110,7 @@ write_review_brief() {
   errors="$(grep -E 'failed|error|timeout|Error|FAIL|Test timeout|ECONN|ENOENT|EADDRINUSE|lightningcss' "$LOG_FILE" 2>/dev/null | tail -n 60 || true)"
   stitch_binding="$(worker_stitch_binding_summary)"
   if worker_stitch_is_bound; then
-    stitch_live_note="Use Stitch MCP directly for current project context before reviewing UI-related work. `.worker/stitch.json` identifies the linked Stitch project, and the linked Stitch screens are the source of truth for current UI state."
+    stitch_live_note="Use Stitch MCP directly for current project context before reviewing UI-related work. .worker/stitch.json identifies the linked Stitch project, and the linked Stitch screens are the source of truth for current UI state."
   else
     stitch_live_note="No Stitch binding file is present for this project."
   fi
@@ -148,7 +148,7 @@ write_escalation_brief() {
   extra="$(latest_extra)"
   stitch_binding="$(worker_stitch_binding_summary)"
   if worker_stitch_is_bound; then
-    stitch_live_note="Stitch is bound. Use live Stitch MCP only if the blocker depends on current design context from the linked Stitch project or screens in `.worker/stitch.json`."
+    stitch_live_note="Stitch is bound. Use live Stitch MCP only if the blocker depends on current design context from the linked Stitch project or screens in .worker/stitch.json."
   else
     stitch_live_note="No Stitch binding file is present for this project."
   fi

@@ -63,6 +63,7 @@ else
       --model sonnet \
       --permission-mode bypassPermissions \
       --max-turns 4 \
+      --append-system-prompt "$(cat "$SYSTEM_PROMPT_FILE")" \
       "$PROMPT_TEXT" > "$TMP_OUTPUT"
   )
 fi
