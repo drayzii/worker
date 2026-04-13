@@ -18,7 +18,6 @@ run_claude() {
     --output-format stream-json \
     --verbose \
     --include-partial-messages \
-    --append-system-prompt "$(cat "$SYSTEM_PROMPT_FILE")" \
     "$prompt" 2>&1 | tee -a "$LOG_FILE" | tee "$TEMP_FILE"
   return ${PIPESTATUS[0]}
 }

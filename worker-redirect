@@ -59,7 +59,6 @@ else
     --output-format stream-json \
     --verbose \
     --include-partial-messages \
-    --append-system-prompt "$(cat "$SYSTEM_PROMPT_FILE")" \
     "$PROMPT" 2>&1 | tee -a "$LOG_FILE" | tee "$TEMP_FILE"
   EXIT_CODE=${PIPESTATUS[0]}
 fi

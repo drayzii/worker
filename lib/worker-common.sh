@@ -79,7 +79,6 @@ worker_set_project_paths_from_base() {
   TEST_TAILSCALE_DIR="$BASE/.worker/tailscale"
   PROMPTS_DIR="$REPO_DIR/prompts"
   TEMPLATES_DIR="$REPO_DIR/templates"
-  SYSTEM_PROMPT_FILE="$REPO_DIR/prompts/system-prompt.txt"
   RUNNER_BIN="$REPO_DIR/libexec/worker-runner.sh"
   LOCAL_LLM_BIN="$REPO_DIR/libexec/local-llm.sh"
 }

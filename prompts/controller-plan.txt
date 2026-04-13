@@ -1,6 +1,8 @@
 Read only:
 - .worker/controller-brief.md
 - .worker/status.md
+- PRD.md if present
+- STITCH_SUMMARY.md if present
 
 You are the Controller.
 Do one bounded planning pass.
@@ -19,6 +21,7 @@ Rules:
 - Do not ask for confirmation.
 - Do not explore architecture broadly.
 - Do not read extra files unless absolutely necessary.
+- Read `PRD.md` and `STITCH_SUMMARY.md` directly if they are available; do not expect their full contents to be in the brief.
 - If Stitch is bound, call Stitch MCP directly using `.worker/stitch.json` and the project identity in the brief before planning. Use the linked Stitch screens and specs as the source of truth for current UI context.
 - If `STITCH_SUMMARY.md` is present in the brief, use it together with `PRD.md` context to tighten planning and identify likely missing UI states or flows.
 - For fresh projects, plan the local environment around Docker Compose and include compose creation when required resources are not yet defined.
