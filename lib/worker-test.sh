@@ -450,7 +450,8 @@ for filename in stack.get("compose_files", []):
     parts.extend(["-f", str(base / filename)])
 if preview_path.exists():
     parts.extend(["-f", str(preview_path)])
-print("\0".join(parts), end="")
+if parts:
+    sys.stdout.buffer.write(b"\0".join(part.encode() for part in parts) + b"\0")
 PY
 }
 
